@@ -1,0 +1,15 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+        "type": "swift",
+        "request": "launch",
+        "name": "Launch Swift Executable",
+        "program": "${workspaceRoot}/.build/debug/Game.exe",
+        "args": [],
+        "env": {},
+        "preLaunchTask": "swift: build",
+        "cwd": "${workspaceRoot}"
+    }
+  ]
+}

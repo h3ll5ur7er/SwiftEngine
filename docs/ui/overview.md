@@ -1,0 +1,134 @@
+# UI Framework Overview
+
+GameEngine includes a SwiftUI-inspired declarative UI framework for building game interfaces. The framework supports immediate-mode rendering with a retained-mode API.
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                          UI Framework                                    │
+│                                                                          │
+│  ┌──────────────────────────────────────────────────────────────────┐  │
+│  │                         UIRoot                                    │  │
+│  │   Entry point - handles input, layout, and rendering              │  │
+│  └──────────────────────────────────────────────────────────────────┘  │
+│                               │                                         │
+│        ┌──────────────────────┼──────────────────────┐                 │
+│        ▼                      ▼                      ▼                 │
+│  ┌──────────┐          ┌──────────┐          ┌──────────┐             │
+│  │ Containers│          │  Views   │          │ Controls │             │
+│  │          │          │          │          │          │             │
+│  │ VStack   │          │ Text     │          │ Button   │             │
+│  │ HStack   │          │ Spacer   │          │ TextField│             │
+│  │ ZStack   │          │ Divider  │          │ Slider   │             │
+│  │ Grid     │          │ ForEach  │          │ Toggle   │             │
+│  │ ScrollView│         │ Rectangle│          │ Checkbox │             │
+│  │ TabPanel │          │          │          │ Dropdown │             │
+│  └──────────┘          └──────────┘          │ Progress │             │
+│                                              └──────────┘             │
+│                                                                          │
+│  ┌──────────────────────────────────────────────────────────────────┐  │
+│  │                    Theme System                                   │  │
+│  │   ThemeManager  ←→  Theme  ←→  ThemedComponents                  │  │
+│  └──────────────────────────────────────────────────────────────────┘  │
+└─────────────────────────────────────────────────────────────────────────┘
+```
+
+## Key Concepts
+
+### View Protocol
+
+All UI elements conform to the `View` protocol:
+
+```swift
+@MainActor
+public protocol View {
+    func sizeThatFits(_ proposal: ProposedSize) -> Size
+    func render(in bounds: UIRect, context: UIRenderContext)
+    func handleMouseEvent(_ event: MouseEvent, in bounds: UIRect) -> Bool
+    func handleKeyEvent(_ event: KeyEvent) -> Bool
+}
+```
+
+### ViewBuilder
+
+Use `@ViewBuilder` to create declarative UI hierarchies:
+
+```swift
+VStack(spacing: 10) {
+    Text("Hello, World!")
+    Button("Click Me") {
+        print("Clicked!")
+    }
+    HStack(spacing: 5) {
+        Text("Name:")
+        TextField(text: nameBinding)
+    }
+}
+```
+
+### Modifiers
+
+Chain modifiers to customize views:
+
+```swift
+Text("Styled Text")
+    .foregroundColor(.white)
+    .background(.blue)
+    .padding(10)
+    .frame(width: 200, height: 50)
+    .cornerRadius(8)
+```
+
+## Basic Usage
+
+### Creating a UI Root
+
+```swift
+class MyScene: GameObjectScene {
+    private var uiRoot: UIRoot!
+    
+    override func onLoad(engine: Engine) {
+        super.onLoad(engine: engine)
+        
+        uiRoot = UIRoot {
+            VStack(spacing: 20) {
+                Text("Game Menu")
+                    .foregroundColor(.white)
+                Button("Start Game") {
+                    // Start game logic
+                }
+                Button("Settings") {
+                    // Open settings
+                }
+            }
+            .padding(20)
+        }
+    }
+    
+    override func update(context: FrameContext, input: Input) {
+        super.update(context: context, input: input)
+    }
+    
+    override func render(context: RenderContext) {
+        context.renderer.clear(.black)
+        
+        // Handle input and render UI
+        if let engine = engine {
+            uiRoot.handleInput(
+                engine.input,
+                screenWidth: Float(context.width),
+                screenHeight: Float(context.height)
+            )
+            uiRoot.render(context: context)
+        }
+    }
+}
+```
+
+## Documentation
+
+- [Containers](containers.md) - Layout containers (VStack, HStack, Grid, TabPanel, etc.)
+- [Views](views.md) - Basic views (Text, Spacer, Divider, etc.)
+- [Controls](controls.md) - Interactive controls (Button, TextField, Slider, etc.)
+- [Theming](theming.md) - Theme system and customization
+- [State Management](state.md) - Bindings and reactive state
+- [UIOverlay Component](overlay.md) - Integrating UI with GameObjects
