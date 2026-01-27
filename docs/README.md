@@ -21,6 +21,9 @@ GameEngine is a component-based game framework featuring:
 - **Material System** - Colors, textures, and shading models
 - **Lighting** - Directional and ambient lights
 - **Camera System** - Perspective and orthographic projections
+- **Physics System** - Rigid bodies, colliders, and collision detection
+- **Actor Concurrency** - Off-thread physics and asset loading
+- **Declarative UI** - SwiftUI-style UI framework
 
 ## Quick Start
 
@@ -52,16 +55,25 @@ docs/
 ├── getting-started.md           ← Installation and first scene
 ├── architecture/
 │   ├── overview.md              ← System architecture
-│   └── game-loop.md             ← Frame lifecycle
+│   ├── game-loop.md             ← Frame lifecycle
+│   └── actors.md                ← Actor concurrency system
 ├── core/
 │   ├── gameobject-component.md  ← Entity-component system
 │   ├── transform.md             ← Position, rotation, scale
-│   └── scenes.md                ← Scene management
+│   ├── scenes.md                ← Scene management
+│   └── input.md                 ← Keyboard and mouse input
 ├── graphics/
 │   ├── math.md                  ← Vectors, matrices, quaternions
 │   ├── rendering.md             ← Render pipeline
 │   ├── materials.md             ← Materials and shading
-│   └── meshes.md                ← Mesh system and primitives
+│   ├── meshes.md                ← Mesh system and primitives
+│   ├── debug.md                 ← Debug drawing utilities
+│   └── asset-loading.md         ← Loading meshes and textures
+├── physics/
+│   ├── overview.md              ← Physics system introduction
+│   ├── rigidbody.md             ← Rigid body dynamics
+│   ├── colliders.md             ← Collision shapes
+│   └── materials.md             ← Physics materials (friction, bounce)
 ├── components/
 │   ├── camera.md                ← Camera component
 │   ├── mesh-renderer.md         ← Rendering meshes
@@ -83,27 +95,32 @@ docs/
 ## Module Structure
 
 ```
-┌─────────────────────────────────────────────────────────────────────────┐
-│                              Game                                        │
-│  ┌───────────────────────────────────────────────────────────────────┐  │
-│  │  Your Scenes, Custom Components, Game Logic                        │  │
-│  └───────────────────────────────────────────────────────────────────┘  │
-│                                │                                         │
-│                         import GameEngine                                │
-│                                ▼                                         │
-├─────────────────────────────────────────────────────────────────────────┤
-│                           GameEngine                                     │
-│  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐  │
-│  │  Engine  │  │ Graphics │  │ Platform │  │Components│  │    UI    │  │
-│  │          │  │          │  │          │  │          │  │          │  │
-│  │ Engine   │  │ Color    │  │ Window   │  │ Camera   │  │ UIRoot   │  │
-│  │ Config   │  │ Vec/Mat  │  │ Input    │  │ Mesh     │  │ View     │  │
-│  │ Component│  │ Renderer │  │ Backbuff │  │ Renderer │  │ VStack   │  │
-│  │ GameObject│ │ Pipeline │  │ Keys     │  │ Lights   │  │ HStack   │  │
-│  │ Transform│  │ Material │  │          │  │ Rotator  │  │ Button   │  │
-│  │ Scene    │  │ Mesh     │  │          │  │ Player   │  │ TabPanel │  │
-│  └──────────┘  └──────────┘  └──────────┘  └──────────┘  └──────────┘  │
-└─────────────────────────────────────────────────────────────────────────┘
+┌───────────────────────────────────────────────────────────────────────────────────────┐
+│                                      Game                                              │
+│  ┌─────────────────────────────────────────────────────────────────────────────────┐  │
+│  │  Your Scenes, Custom Components, Game Logic                                      │  │
+│  └─────────────────────────────────────────────────────────────────────────────────┘  │
+│                                        │                                               │
+│                                 import GameEngine                                      │
+│                                        ▼                                               │
+├───────────────────────────────────────────────────────────────────────────────────────┤
+│                                    GameEngine                                          │
+│  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐       │
+│  │  Engine  │ │ Graphics │ │ Platform │ │Components│ │ Physics  │ │    UI    │       │
+│  │          │ │          │ │          │ │          │ │          │ │          │       │
+│  │ Engine   │ │ Color    │ │ Window   │ │ Camera   │ │RigidBody │ │ UIRoot   │       │
+│  │ Config   │ │ Vec/Mat  │ │ Input    │ │ Mesh     │ │Colliders │ │ View     │       │
+│  │ Component│ │ Renderer │ │ Backbuff │ │ Renderer │ │PhysMat   │ │ VStack   │       │
+│  │GameObject│ │ Pipeline │ │ Keys     │ │ Lights   │ │Collision │ │ HStack   │       │
+│  │Transform │ │ Material │ │          │ │ Rotator  │ │Manager   │ │ Button   │       │
+│  │ Scene    │ │ Mesh     │ │          │ │ Player   │ │          │ │ TabPanel │       │
+│  └──────────┘ └──────────┘ └──────────┘ └──────────┘ └──────────┘ └──────────┘       │
+│                                        │                                               │
+│  ┌────────────────────────────────────────────────────────────────────────────────┐   │
+│  │                               Actors (Concurrency)                              │   │
+│  │  PhysicsActor      AssetLoadingActor      GameLogicActor      ActorCoordinator │   │
+│  └────────────────────────────────────────────────────────────────────────────────┘   │
+└───────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
 ## Requirements

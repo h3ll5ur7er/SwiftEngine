@@ -220,7 +220,34 @@ Screen Space ◀──[Viewport]── NDC Space ◀──[Perspective Divide]�
 
 ## Threading Model
 
-GameEngine runs entirely on the **main actor** (`@MainActor`):
+GameEngine uses Swift's actor model for concurrency:
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                          Threading Architecture                              │
+│                                                                              │
+│   ┌───────────────────────────────────────────────────────────────────┐     │
+│   │                    MainActor (Game Loop)                           │     │
+│   │  • Window/Input handling    • Rendering     • Scene updates       │     │
+│   │  • Component lifecycle      • UI updates    • Physics coordination│     │
+│   └─────────────────────────────────┬─────────────────────────────────┘     │
+│                                     │                                        │
+│                              async/await                                     │
+│                      ┌──────────────┼──────────────┐                        │
+│                      ▼              ▼              ▼                        │
+│   ┌────────────────────┐  ┌────────────────┐  ┌────────────────┐           │
+│   │   PhysicsActor     │  │AssetLoadingActor│ │ GameLogicActor │           │
+│   │ • Collision detect │  │ • Mesh loading  │  │ • AI compute   │           │
+│   │ • Rigid body sim   │  │ • Texture load  │  │ • Pathfinding  │           │
+│   │ • Fixed timestep   │  │ • Async I/O     │  │ • Heavy calc   │           │
+│   └────────────────────┘  └────────────────┘  └────────────────┘           │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Main Actor
+
+Most game code runs on the **main actor** (`@MainActor`):
 
 ```swift
 @MainActor
@@ -233,4 +260,14 @@ public final class MyScene: GameObjectScene { ... }
 public class Component { ... }
 ```
 
-All game logic, rendering, and input processing happens on the main thread. This simplifies the programming model and avoids synchronization issues.
+Game logic, rendering, and input processing happens on the main thread. This simplifies the programming model and avoids synchronization issues.
+
+### Background Actors
+
+CPU-intensive operations run on dedicated actors to keep the main thread responsive:
+
+- **PhysicsActor** - Collision detection, rigid body simulation (60Hz fixed timestep)
+- **AssetLoadingActor** - Mesh and texture loading without blocking
+- **GameLogicActor** - Heavy AI calculations, pathfinding
+
+See [Actor System](actors.md) for detailed documentation.

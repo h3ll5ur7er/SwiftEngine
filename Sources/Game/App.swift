@@ -4,7 +4,7 @@ import GameEngine
 @main
 @MainActor
 struct Main {
-    static func main() {
+    static func main() async {
         let config = EngineConfig(
             title: "Swift Low-Level Renderer - Overlay Demo",
             width: 1024,
@@ -15,7 +15,8 @@ struct Main {
         
         let engine = Engine(config: config)
         // engine.loadScene(OverlayDemoScene())
-        engine.loadScene(GameObjectDemoScene())
-        engine.run()
+        // engine.loadScene(GameObjectDemoScene())
+        engine.loadScene(ActorDemoScene())
+        await engine.run()
     }
 }

@@ -59,7 +59,7 @@ public final class Engine {
     }
     
     /// Start the engine main loop
-    public func run() {
+    public func run() async {
         guard window.create(title: config.title, width: config.width, height: config.height) else {
             print("Failed to create window")
             return
@@ -97,6 +97,11 @@ public final class Engine {
             input.beginFrame()
             window.pollEvents()
             
+            // Exit immediately if window was closed during event processing
+            if window.shouldClose {
+                break
+            }
+            
             // Check for escape key
             if input.isKeyPressed(.escape) {
                 stop()
@@ -113,6 +118,10 @@ public final class Engine {
             
             // Update scene
             currentScene?.update(context: frameContext, input: input)
+            
+            // Update physics synchronously (async version caused window issues)
+            // TODO: Investigate async physics with proper message pump integration
+            PhysicsSystem.shared.update(deltaTime: Float(deltaTime))
             
             // Render
             Primitives.currentRenderer = renderer
@@ -137,8 +146,11 @@ public final class Engine {
             }
         }
         
-        // Cleanup
-        unloadScene()
+        // Terminate the process immediately
+        // We call ExitProcess directly because Swift's async runtime can block
+        // indefinitely if there are global actors with pending work.
+        // The OS will reclaim all resources (memory, handles, etc.)
+        ExitProcess(0)
     }
     
     /// Stop the engine

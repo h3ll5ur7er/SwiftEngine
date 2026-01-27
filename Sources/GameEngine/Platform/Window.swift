@@ -182,9 +182,16 @@ public final class Window {
     
     fileprivate func handleMessage(_ msg: UINT, _ wParam: WPARAM, _ lParam: LPARAM) -> LRESULT? {
         switch msg {
-        case UINT(WM_DESTROY):
+        case UINT(WM_CLOSE):
+            // User requested to close the window (clicked X, Alt+F4, etc.)
+            // Signal that we should close, then let DefWindowProc handle destruction
             shouldClose = true
             onClose?()
+            // Fall through to default handling which calls DestroyWindow
+            return nil
+            
+        case UINT(WM_DESTROY):
+            shouldClose = true
             PostQuitMessage(0)
             return 0
             
