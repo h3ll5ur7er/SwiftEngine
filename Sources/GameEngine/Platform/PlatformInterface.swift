@@ -4,6 +4,8 @@
 
 #if os(Windows)
 import WindowsPlatform
+#elseif os(Linux)
+import LinuxPlatform
 #endif
 
 // MARK: - Type Aliases for Clean API
@@ -26,6 +28,25 @@ public typealias PlatformVirtualKey = WindowsPlatform.VirtualKey
 
 /// Platform-specific mouse button index type
 public typealias PlatformMouseButtonIndex = WindowsPlatform.MouseButtonIndex
+
+#elseif os(Linux)
+/// Platform-specific window type
+public typealias PlatformWindow = LinuxPlatform.Window
+
+/// Platform-specific backbuffer type
+public typealias PlatformBackbuffer = LinuxPlatform.Backbuffer
+
+/// Platform-specific timer type
+public typealias PlatformTimer = LinuxPlatform.Timer
+
+/// Platform-specific key code translator type
+public typealias PlatformKeyCodeTranslator = LinuxPlatform.KeyCodeTranslator
+
+/// Platform-specific virtual key type
+public typealias PlatformVirtualKey = LinuxPlatform.VirtualKey
+
+/// Platform-specific mouse button index type
+public typealias PlatformMouseButtonIndex = LinuxPlatform.MouseButtonIndex
 #endif
 
 // MARK: - PlatformInterface
@@ -41,6 +62,8 @@ public enum PlatformInterface {
     public static func createWindow() -> PlatformWindow {
         #if os(Windows)
         return WindowsPlatform.Window()
+        #elseif os(Linux)
+        return LinuxPlatform.Window()
         #else
         fatalError("Platform not implemented")
         #endif
@@ -50,6 +73,8 @@ public enum PlatformInterface {
     public static func createBackbuffer() -> PlatformBackbuffer {
         #if os(Windows)
         return WindowsPlatform.Backbuffer()
+        #elseif os(Linux)
+        return LinuxPlatform.Backbuffer()
         #else
         fatalError("Platform not implemented")
         #endif
@@ -59,6 +84,8 @@ public enum PlatformInterface {
     public static func createTimer() -> PlatformTimer {
         #if os(Windows)
         return WindowsPlatform.Timer()
+        #elseif os(Linux)
+        return LinuxPlatform.Timer()
         #else
         fatalError("Platform not implemented")
         #endif
@@ -68,6 +95,8 @@ public enum PlatformInterface {
     public static func createKeyCodeTranslator() -> PlatformKeyCodeTranslator {
         #if os(Windows)
         return WindowsPlatform.KeyCodeTranslator()
+        #elseif os(Linux)
+        return LinuxPlatform.KeyCodeTranslator()
         #else
         fatalError("Platform not implemented")
         #endif
@@ -79,6 +108,8 @@ public enum PlatformInterface {
     public static func exitProcess(_ code: Int32) -> Never {
         #if os(Windows)
         WindowsPlatform.Platform.exitProcess(code)
+        #elseif os(Linux)
+        LinuxPlatform.Platform.exitProcess(code)
         #else
         fatalError("Platform not implemented")
         #endif
@@ -86,7 +117,7 @@ public enum PlatformInterface {
     
     /// Translate a platform virtual key code to engine Key
     public static func translateKeyCode(_ vk: Int32) -> Key? {
-        #if os(Windows)
+        #if os(Windows) || os(Linux)
         guard let platformKey = PlatformVirtualKey(rawValue: vk) else { return nil }
         return keyFromPlatformKey(platformKey)
         #else
@@ -94,7 +125,7 @@ public enum PlatformInterface {
         #endif
     }
     
-    #if os(Windows)
+    #if os(Windows) || os(Linux)
     /// Convert platform virtual key to engine Key
     public static func keyFromPlatformKey(_ vk: PlatformVirtualKey) -> Key {
         switch vk {
@@ -169,7 +200,7 @@ public enum PlatformInterface {
 extension PlatformInterface {
     /// Convert platform mouse button index to engine MouseButton
     public static func mouseButtonFromPlatformIndex(_ index: Int32) -> MouseButton? {
-        #if os(Windows)
+        #if os(Windows) || os(Linux)
         switch index {
         case PlatformMouseButtonIndex.left.rawValue: return .left
         case PlatformMouseButtonIndex.right.rawValue: return .right
@@ -191,6 +222,20 @@ public struct SharedTimer: Sendable {
     
     public init() {
         self.timer = WindowsPlatform.Timer()
+    }
+    
+    public func currentTimeMillis() -> UInt64 {
+        timer.currentTimeMillis()
+    }
+    
+    public func sleep(milliseconds: UInt32) {
+        timer.sleep(milliseconds: milliseconds)
+    }
+    #elseif os(Linux)
+    private let timer: LinuxPlatform.Timer
+    
+    public init() {
+        self.timer = LinuxPlatform.Timer()
     }
     
     public func currentTimeMillis() -> UInt64 {

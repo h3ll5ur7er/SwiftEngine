@@ -14,6 +14,10 @@ let package = Package(
             name: "WindowsPlatform",
             targets: ["WindowsPlatform"]
         ),
+        .library(
+            name: "LinuxPlatform",
+            targets: ["LinuxPlatform"]
+        ),
         .executable(
             name: "Game",
             targets: ["Game"]
@@ -27,10 +31,23 @@ let package = Package(
                 .unsafeFlags(["-Ounchecked"], .when(configuration: .release))
             ]
         ),
+        // Linux platform implementation - separate compilation unit
+        .target(
+            name: "LinuxPlatform",
+            swiftSettings: [
+                .unsafeFlags(["-Ounchecked"], .when(configuration: .release))
+            ],
+            linkerSettings: [
+                .linkedLibrary("X11", .when(platforms: [.linux]))
+            ]
+        ),
         // Core engine library - depends on platform implementations
         .target(
             name: "GameEngine",
-            dependencies: ["WindowsPlatform"],
+            dependencies: [
+                .target(name: "WindowsPlatform", condition: .when(platforms: [.windows])),
+                .target(name: "LinuxPlatform", condition: .when(platforms: [.linux]))
+            ],
             swiftSettings: [
                 .unsafeFlags(["-Ounchecked"], .when(configuration: .release))
             ]
