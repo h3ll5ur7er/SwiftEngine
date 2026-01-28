@@ -1,5 +1,4 @@
 import Foundation
-@preconcurrency import WinSDK
 
 /// Physics system that coordinates between MainActor objects and the PhysicsActor
 /// This class runs on MainActor and handles:
@@ -11,6 +10,9 @@ public final class PhysicsSystem {
     
     /// Shared instance
     public static let shared = PhysicsSystem()
+    
+    /// Shared timer for performance measurement
+    private let timer = sharedTimer
     
     /// All registered rigid bodies
     private var rigidBodies: [RigidBody] = []
@@ -61,7 +63,7 @@ public final class PhysicsSystem {
     public func updateAsync(deltaTime: Float) async {
         guard isEnabled else { return }
         
-        let startTime = GetTickCount64()
+        let startTime = timer.currentTimeMillis()
         
         // Step 1: Create snapshots of all bodies and colliders
         let input = createPhysicsInput(deltaTime: deltaTime)
@@ -73,7 +75,7 @@ public final class PhysicsSystem {
         applyPhysicsResult(result)
         
         // Update statistics
-        waitTimeMs = Double(GetTickCount64() - startTime)
+        waitTimeMs = Double(timer.currentTimeMillis() - startTime)
         collisionsThisFrame = result.collisions.count
         stepsThisFrame = result.stepsExecuted
     }
@@ -181,7 +183,7 @@ public final class PhysicsSystem {
     public func update(deltaTime: Float) {
         guard isEnabled else { return }
         
-        let startTime = GetTickCount64()
+        let startTime = timer.currentTimeMillis()
         
         // Clamp delta time
         let clampedDt = min(deltaTime, maxDeltaTime)
@@ -228,7 +230,7 @@ public final class PhysicsSystem {
         applyPhysicsResult(result)
         
         // Update statistics
-        waitTimeMs = Double(GetTickCount64() - startTime)
+        waitTimeMs = Double(timer.currentTimeMillis() - startTime)
         collisionsThisFrame = allCollisions.count
         stepsThisFrame = totalSteps
     }

@@ -1,5 +1,4 @@
 import Foundation
-@preconcurrency import WinSDK
 
 /// Snapshot of a component's update state
 public struct ComponentUpdateData: Sendable {
@@ -76,6 +75,9 @@ public actor GameLogicActor {
     /// Shared instance
     public static let shared = GameLogicActor()
     
+    /// Shared timer for performance measurement
+    private let timer = sharedTimer
+    
     /// Registered update handlers (keyed by component type name)
     private var updateHandlers: [String: @Sendable (GameObjectSnapshot, Float) async -> TransformUpdate?] = [:]
     
@@ -121,7 +123,7 @@ public actor GameLogicActor {
         _ snapshots: [GameObjectSnapshot],
         deltaTime: Float
     ) async -> GameLogicResult {
-        let startTime = GetTickCount64()
+        let startTime = timer.currentTimeMillis()
         var transformUpdates: [GameUUID: TransformUpdate] = [:]
         var processedCount = 0
         
@@ -167,7 +169,7 @@ public actor GameLogicActor {
             }
         }
         
-        let processingTime = Double(GetTickCount64() - startTime) / 1000.0
+        let processingTime = Double(timer.currentTimeMillis() - startTime) / 1000.0
         totalUpdatesProcessed += UInt64(processedCount)
         totalProcessingTime += processingTime
         

@@ -1,5 +1,4 @@
 import Foundation
-@preconcurrency import WinSDK
 
 // MARK: - Sendable State Types
 
@@ -157,6 +156,9 @@ public actor PhysicsActor {
     /// Shared instance
     public static let shared = PhysicsActor()
     
+    /// Shared timer for performance measurement
+    private let timer = sharedTimer
+    
     /// Fixed timestep for physics (default: 60Hz)
     public var fixedDeltaTime: Float = 1.0 / 60.0
     
@@ -191,7 +193,7 @@ public actor PhysicsActor {
             return PhysicsStepResult(updatedBodies: input.bodies, collisions: [], simulatedTime: 0, stepsExecuted: 0)
         }
         
-        let startTime = GetTickCount64()
+        let startTime = timer.currentTimeMillis()
         
         // Clamp incoming delta time
         let clampedDt = min(input.deltaTime, maxDeltaTime)
@@ -230,7 +232,7 @@ public actor PhysicsActor {
         
         // Update statistics
         totalStepsProcessed += UInt64(stepsThisFrame)
-        totalProcessingTimeMs += Double(GetTickCount64() - startTime)
+        totalProcessingTimeMs += Double(timer.currentTimeMillis() - startTime)
         lastFrameSteps = stepsThisFrame
         
         return PhysicsStepResult(

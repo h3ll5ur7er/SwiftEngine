@@ -164,7 +164,7 @@ public final class UIOverlay: Component {
         screenHeight = Float(context.height)
         
         // Calculate overlay bounds based on anchor and size
-        let _bounds = calculateBounds()
+        let _ = calculateBounds()
         
         // Create a render context that respects the bounds
         // For now, we render in the calculated bounds

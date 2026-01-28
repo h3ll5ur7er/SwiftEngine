@@ -10,15 +10,27 @@ let package = Package(
             name: "GameEngine",
             targets: ["GameEngine"]
         ),
+        .library(
+            name: "WindowsPlatform",
+            targets: ["WindowsPlatform"]
+        ),
         .executable(
             name: "Game",
             targets: ["Game"]
         )
     ],
     targets: [
-        // Core engine library - recompiled only when engine code changes
+        // Windows platform implementation - separate compilation unit
+        .target(
+            name: "WindowsPlatform",
+            swiftSettings: [
+                .unsafeFlags(["-Ounchecked"], .when(configuration: .release))
+            ]
+        ),
+        // Core engine library - depends on platform implementations
         .target(
             name: "GameEngine",
+            dependencies: ["WindowsPlatform"],
             swiftSettings: [
                 .unsafeFlags(["-Ounchecked"], .when(configuration: .release))
             ]

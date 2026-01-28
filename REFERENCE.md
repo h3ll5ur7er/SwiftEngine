@@ -1,27 +1,37 @@
 # Swift Low-Level Renderer - Engine Reference
 
 ## Overview
-A Windows-native 3D game engine written in Swift featuring:
-- Win32 windowing via WinSDK
+A cross-platform 3D game engine written in Swift featuring:
+- Platform abstraction layer for OS-independent code
 - Component-based GameObjects
 - Software 3D rendering with lighting
 - Physics simulation with collision detection
 - Actor-based concurrency (PhysicsActor, GameLogicActor, AssetLoadingActor)
 - SwiftUI-inspired UI system
 
+Currently supported platforms: Windows (via WinSDK)
+
 ---
 
 ## Directory Structure
 
 ```
-Sources/GameEngine/
-├── Actors/          # Concurrent actors for off-main-thread work
-├── Components/      # GameObject components (Camera, Colliders, etc.)
-├── Engine/          # Core engine types (Engine, Transform, Mesh, etc.)
-├── Graphics/        # Math types and rendering (Vec3d, Mat4d, Color, etc.)
-├── Platform/        # Win32 platform layer (Window, Input, Backbuffer)
-├── Scene/           # Scene management and lights
-└── UI/              # SwiftUI-style UI framework
+Sources/
+├── WindowsPlatform/     # Windows-specific platform implementation (separate module)
+│   ├── Backbuffer.swift # GDI-based software rendering
+│   ├── Window.swift     # Win32 window management
+│   ├── Timer.swift      # High-precision timing
+│   ├── KeyCodeTranslator.swift
+│   └── Platform.swift   # Platform utilities
+├── GameEngine/
+│   ├── Actors/          # Concurrent actors for off-main-thread work
+│   ├── Components/      # GameObject components (Camera, Colliders, etc.)
+│   ├── Engine/          # Core engine types (Engine, Transform, Mesh, etc.)
+│   ├── Graphics/        # Math types and rendering (Vec3d, Mat4d, Color, etc.)
+│   ├── Platform/        # Platform abstraction (PlatformInterface + wrappers)
+│   ├── Scene/           # Scene management and lights
+│   └── UI/              # SwiftUI-style UI framework
+└── Game/                # User game code
 ```
 
 ---
@@ -634,7 +644,143 @@ public final class RenderPipeline {
 
 ---
 
-## Platform (`Platform/`)
+## Platform Abstraction Layer (`Platform/`)
+
+### Architecture Overview
+
+The platform layer uses a **separate compilation unit** approach for optimal performance:
+
+1. **Platform Modules** (`Sources/WindowsPlatform/`, future: `Sources/MacOSPlatform/`, etc.)
+   - Each platform has its own Swift module with concrete types
+   - Types use generic names (e.g., `Backbuffer`, not `WindowsBackbuffer`)
+   - No protocol overhead - direct concrete type usage
+
+2. **PlatformInterface** (`Sources/GameEngine/Platform/PlatformInterface.swift`)
+   - Central access point using `#if os(...)` for compile-time platform selection
+   - Provides type aliases and factory methods
+   - Engine code uses this interface exclusively
+
+This design achieves:
+- **Clean API**: End-users see platform-agnostic types
+- **High Performance**: No protocol existential overhead (concrete types)
+- **Easy Extension**: Add new platforms by creating modules and extending `PlatformInterface`
+
+### `PlatformInterface` (MainActor)
+
+The unified interface for all platform-specific functionality:
+
+```swift
+@MainActor
+public enum PlatformInterface {
+    // Factory methods
+    public static func createWindow() -> PlatformWindow
+    public static func createBackbuffer() -> PlatformBackbuffer
+    public static func createTimer() -> PlatformTimer
+    public static func createKeyCodeTranslator() -> PlatformKeyCodeTranslator
+    
+    // Utilities
+    public static func exitProcess(_ code: Int32) -> Never
+    public static func translateKeyCode(_ vk: Int32) -> Key?
+    public static func mouseButtonFromPlatformIndex(_ index: Int32) -> MouseButton?
+}
+```
+
+### Type Aliases
+
+`PlatformInterface` provides type aliases that resolve to concrete platform types:
+
+```swift
+#if os(Windows)
+public typealias PlatformWindow = WindowsPlatform.Window
+public typealias PlatformBackbuffer = WindowsPlatform.Backbuffer
+public typealias PlatformTimer = WindowsPlatform.Timer
+public typealias PlatformKeyCodeTranslator = WindowsPlatform.KeyCodeTranslator
+public typealias PlatformVirtualKey = WindowsPlatform.VirtualKey
+public typealias PlatformMouseButtonIndex = WindowsPlatform.MouseButtonIndex
+#endif
+```
+
+### `SharedTimer` (Sendable)
+
+For timing in non-MainActor contexts (actors, async code):
+
+```swift
+/// Global shared timer instance
+public let sharedTimer = SharedTimer()
+
+public struct SharedTimer: Sendable {
+    public func currentTimeMillis() -> UInt64
+    public func sleep(milliseconds: UInt32)
+}
+```
+
+### Platform Module Types (WindowsPlatform)
+
+Each platform module provides these concrete types with generic names:
+
+#### `Backbuffer` (MainActor)
+Software rendering backbuffer.
+```swift
+public final class Backbuffer {
+    public var width: Int32 { get }
+    public var height: Int32 { get }
+    public var pixels: UnsafeMutablePointer<UInt32>? { get }
+    public var pixelCount: Int { get }
+    
+    public func resize(width: Int32, height: Int32)
+}
+```
+
+#### `Window` (MainActor)
+Native window management.
+```swift
+public final class Window {
+    public var width: Int32 { get }
+    public var height: Int32 { get }
+    public var shouldClose: Bool { get }
+    public var isMouseCaptured: Bool { get }
+    
+    public func create(title: String, width: Int32, height: Int32) -> Bool
+    public func pollEvents()
+    public func present()
+    public func setTitle(_ title: String)
+    public func captureMouse()
+    public func releaseMouse()
+    
+    // Callbacks
+    public var onResize: ((Int32, Int32) -> Void)?
+    public var onClose: (() -> Void)?
+    public var onKeyEvent: ((Int32, Bool) -> Void)?
+    public var onMouseMove: ((Int32, Int32) -> Void)?
+    public var onMouseButton: ((Int32, Bool) -> Void)?
+}
+```
+
+#### `Timer` (Sendable)
+High-precision timing.
+```swift
+public struct Timer: Sendable {
+    public func currentTimeMillis() -> UInt64
+    public func sleep(milliseconds: UInt32)
+}
+```
+
+### Adding a New Platform
+
+To add support for a new platform (e.g., macOS):
+
+1. Create `Sources/MacOSPlatform/` with:
+   - `Backbuffer.swift` - Core Graphics/Metal backbuffer
+   - `Window.swift` - NSWindow wrapper
+   - `Timer.swift` - mach_absolute_time wrapper
+   - `KeyCodeTranslator.swift` - NSEvent key codes
+   - `Platform.swift` - Platform utilities
+
+2. Update `Package.swift` to add the new target
+
+3. Extend `PlatformInterface.swift` with `#elseif os(macOS)` cases
+
+---
 
 ### `Input` (MainActor)
 ```swift
@@ -811,6 +957,7 @@ public typealias GameUUID = Foundation.UUID  // Disambiguates from WinSDK GUID
 @MainActor
 struct Main {
     static func main() async {
+        // No platform initialization needed - handled automatically via PlatformInterface
         let config = EngineConfig(title: "My Game", width: 1024, height: 768)
         let engine = Engine(config: config)
         engine.loadScene(MyScene())
@@ -855,3 +1002,23 @@ class MyScene: GameObjectScene {
 1. **Window close in debug mode**: Process may not terminate cleanly in debug builds; works correctly in release.
 2. **Async physics**: Currently using synchronous physics due to interaction with Win32 message pump; async version available but experimental.
 3. **UI System**: Full documentation pending for Text/, State/, Containers/, Controls/, Views/ subdirectories.
+4. **Platform Support**: Currently only Windows is implemented. macOS and Linux support planned for future releases.
+
+---
+
+## Platform Support Status
+
+| Platform | Status | Module |
+|----------|--------|--------|
+| Windows  | ✅ Fully supported | `WindowsPlatform` |
+| macOS    | 🔲 Planned | `MacOSPlatform` |
+| Linux    | 🔲 Planned | `LinuxPlatform` |
+
+### Performance Notes
+
+The platform abstraction uses **concrete types** (not protocol existentials) to ensure zero overhead:
+- Direct function calls instead of witness table lookups
+- Compiler can inline platform-specific code
+- No `any` protocol boxing overhead
+
+This architecture was chosen after benchmarking showed ~50% FPS regression with protocol existentials in hot paths.

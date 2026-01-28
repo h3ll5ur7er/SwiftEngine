@@ -1,5 +1,4 @@
 import Foundation
-@preconcurrency import WinSDK
 
 /// Coordinates between different actors and the main thread
 /// Manages the flow of data between physics, game logic, and rendering
@@ -8,6 +7,9 @@ public final class ActorCoordinator {
     
     /// Shared instance
     public static let shared = ActorCoordinator()
+    
+    /// Shared timer for performance measurement
+    private let timer = sharedTimer
     
     /// Whether async physics is enabled
     public var asyncPhysicsEnabled: Bool = true
@@ -36,7 +38,7 @@ public final class ActorCoordinator {
         deltaTime: Float,
         gameObjects: [GameObject]
     ) async {
-        let frameStart = GetTickCount64()
+        let frameStart = timer.currentTimeMillis()
         
         // Create snapshots for concurrent processing (on MainActor)
         let snapshots = gameObjects.map { go in
@@ -147,7 +149,7 @@ public final class ActorCoordinator {
         gameLogicTime = gameLogicResult.processingTime
         applyGameLogicResults(gameLogicResult, to: gameObjects)
         
-        lastFrameActorTime = Double(GetTickCount64() - frameStart) / 1000.0
+        lastFrameActorTime = Double(timer.currentTimeMillis() - frameStart) / 1000.0
     }
     
     // MARK: - Result Application
@@ -213,8 +215,8 @@ public final class ActorCoordinator {
     
     /// Get comprehensive performance statistics
     public func getPerformanceStats() async -> ActorPerformanceStats {
-        let (physicsUpdates, physicsTime, lastFrameSteps) = await PhysicsActor.shared.getStatistics()
-        let (logicUpdates, logicTime, avgLogicTime) = await GameLogicActor.shared.getStatistics()
+        let (physicsUpdates, physicsTime, _) = await PhysicsActor.shared.getStatistics()
+        let (_, logicTime, avgLogicTime) = await GameLogicActor.shared.getStatistics()
         let cacheStats = await AssetLoadingActor.shared.getCacheStats()
         
         return ActorPerformanceStats(

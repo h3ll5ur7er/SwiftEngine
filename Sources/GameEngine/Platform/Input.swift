@@ -1,5 +1,3 @@
-@preconcurrency import WinSDK
-
 /// Handles keyboard and mouse input state
 @MainActor
 public final class Input {
@@ -138,70 +136,15 @@ public final class Input {
     
     // MARK: - Virtual Key Translation
     
-    static func keyFromVirtualKey(_ vk: Int32) -> Key? {
-        switch vk {
-        case VK_LEFT: return .left
-        case VK_RIGHT: return .right
-        case VK_UP: return .up
-        case VK_DOWN: return .down
-        case VK_ESCAPE: return .escape
-        case VK_SPACE: return .space
-        case VK_RETURN: return .enter
-        case VK_TAB: return .tab
-        case VK_BACK: return .backspace
-        case VK_DELETE: return .delete
-        case VK_SHIFT: return .shift
-        case VK_CONTROL: return .control
-        case VK_MENU: return .alt
-        case 0x41: return .a
-        case 0x42: return .b
-        case 0x43: return .c
-        case 0x44: return .d
-        case 0x45: return .e
-        case 0x46: return .f
-        case 0x47: return .g
-        case 0x48: return .h
-        case 0x49: return .i
-        case 0x4A: return .j
-        case 0x4B: return .k
-        case 0x4C: return .l
-        case 0x4D: return .m
-        case 0x4E: return .n
-        case 0x4F: return .o
-        case 0x50: return .p
-        case 0x51: return .q
-        case 0x52: return .r
-        case 0x53: return .s
-        case 0x54: return .t
-        case 0x55: return .u
-        case 0x56: return .v
-        case 0x57: return .w
-        case 0x58: return .x
-        case 0x59: return .y
-        case 0x5A: return .z
-        case 0x30: return .num0
-        case 0x31: return .num1
-        case 0x32: return .num2
-        case 0x33: return .num3
-        case 0x34: return .num4
-        case 0x35: return .num5
-        case 0x36: return .num6
-        case 0x37: return .num7
-        case 0x38: return .num8
-        case 0x39: return .num9
-        case VK_F1: return .f1
-        case VK_F2: return .f2
-        case VK_F3: return .f3
-        case VK_F4: return .f4
-        case VK_F5: return .f5
-        case VK_F6: return .f6
-        case VK_F7: return .f7
-        case VK_F8: return .f8
-        case VK_F9: return .f9
-        case VK_F10: return .f10
-        case VK_F11: return .f11
-        case VK_F12: return .f12
-        default: return nil
+    /// Translate a platform virtual key code to Key enum
+    public func keyFromVirtualKey(_ vk: Int32) -> Key? {
+        PlatformInterface.translateKeyCode(vk)
+    }
+    
+    /// Static method for convenience
+    public static func keyFromVirtualKey(_ vk: Int32) -> Key? {
+        MainActor.assumeIsolated {
+            PlatformInterface.translateKeyCode(vk)
         }
     }
 }

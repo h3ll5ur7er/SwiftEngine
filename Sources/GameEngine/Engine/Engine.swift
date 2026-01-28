@@ -1,11 +1,12 @@
-@preconcurrency import WinSDK
-
 /// Main game engine class
 @MainActor
 public final class Engine {
     // Configuration
     private let config: EngineConfig
     private let baseTitle: String
+    
+    // Platform - using concrete types from PlatformInterface
+    private let timer: PlatformTimer
     
     // Core systems
     private let backbuffer: Backbuffer
@@ -28,6 +29,9 @@ public final class Engine {
     public init(config: EngineConfig) {
         self.config = config
         self.baseTitle = config.title
+        
+        // Create concrete platform timer
+        self.timer = PlatformInterface.createTimer()
         
         self.backbuffer = Backbuffer()
         self.input = Input()
@@ -66,13 +70,13 @@ public final class Engine {
         }
         
         isRunning = true
-        lastFrameTime = GetTickCount64()
+        lastFrameTime = timer.currentTimeMillis()
         fpsUpdateTime = lastFrameTime
         
         // Main loop
         while isRunning && !window.shouldClose {
             // Calculate delta time
-            let now = GetTickCount64()
+            let now = timer.currentTimeMillis()
             let deltaMs = now - lastFrameTime
             let deltaTime = Double(deltaMs) / 1000.0
             lastFrameTime = now
@@ -137,20 +141,20 @@ public final class Engine {
             // Frame rate limiting
             if let targetFps = config.targetFps, targetFps > 0 {
                 let frameTimeMs = UInt32(1000 / targetFps)
-                let elapsed = GetTickCount64() - now
+                let elapsed = timer.currentTimeMillis() - now
                 if elapsed < UInt64(frameTimeMs) {
-                    Sleep(UInt32(UInt64(frameTimeMs) - elapsed))
+                    timer.sleep(milliseconds: UInt32(UInt64(frameTimeMs) - elapsed))
                 }
             } else {
-                Sleep(1) // Yield to prevent 100% CPU
+                timer.sleep(milliseconds: 1) // Yield to prevent 100% CPU
             }
         }
         
         // Terminate the process immediately
-        // We call ExitProcess directly because Swift's async runtime can block
+        // We call exitProcess directly because Swift's async runtime can block
         // indefinitely if there are global actors with pending work.
         // The OS will reclaim all resources (memory, handles, etc.)
-        ExitProcess(0)
+        PlatformInterface.exitProcess(0)
     }
     
     /// Stop the engine
