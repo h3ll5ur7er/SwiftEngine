@@ -130,10 +130,22 @@ ForEach(items) { item in
 
 ## ConditionalView
 
-Shows one of two views based on a condition that is re-checked whenever it is measured, rendered or receives input (it is what the `If(_:then:else:)` helper returns). Inside a `@ViewBuilder` closure you can simply write `if`/`else`, but that condition is evaluated once, when the closure runs.
+Shows one of two views based on a condition that is re-checked whenever it is measured, rendered or receives input, so it follows state changes without rebuilding the UI. Use the `If(_:then:)` / `If(_:then:else:)` helpers (they return `OptionalView` / `ConditionalView`). Each branch is built once and kept, so controls inside keep their state.
 
 ```swift
-// In a ViewBuilder context, use if/else directly:
+// Re-checked every frame
+VStack {
+    If(self.isLoggedIn) {
+        Text("Welcome!")
+    } else: {
+        Text("Please log in")
+    }
+}
+```
+
+A plain `if`/`else` inside a `@ViewBuilder` closure also works, but its condition is evaluated once, when the closure runs.
+
+```swift
 VStack {
     if isLoggedIn {
         Text("Welcome!")
@@ -154,6 +166,8 @@ VStack {
     }
 }
 ```
+
+For a condition that changes while the UI is shown, use `If(self.showContent) { Text("Content") }`, which re-checks it every frame.
 
 ## Combining Views
 

@@ -1,5 +1,12 @@
 
 
+/// A view that stands for several sibling views (like ForEach); view builders
+/// splice its children into the surrounding container
+@MainActor
+public protocol ViewChildrenProvider {
+    func children() -> [any View]
+}
+
 /// Result builder for creating arrays of views in a SwiftUI-like syntax
 @resultBuilder
 @MainActor
@@ -29,9 +36,12 @@ public struct ViewBuilder {
         components.flatMap { $0 }
     }
     
-    /// Build expression (single view to array)
+    /// Build expression (single view to array; ForEach expands to its children)
     public static func buildExpression(_ expression: any View) -> [any View] {
-        [expression]
+        if let provider = expression as? ViewChildrenProvider {
+            return provider.children()
+        }
+        return [expression]
     }
     
     /// Build expression (array passthrough)

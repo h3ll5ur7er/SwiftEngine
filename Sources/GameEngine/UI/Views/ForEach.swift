@@ -2,7 +2,7 @@
 
 /// A view that creates views from a collection of data
 @MainActor
-public final class ForEach<Data: RandomAccessCollection>: View where Data.Index == Int {
+public final class ForEach<Data: RandomAccessCollection>: View, ViewChildrenProvider where Data.Index == Int {
     
     private let data: Data
     private let content: (Data.Element) -> any View
@@ -24,9 +24,16 @@ public final class ForEach<Data: RandomAccessCollection>: View where Data.Index 
     }
     
     public func sizeThatFits(_ proposal: ProposedSize) -> Size {
-        // ForEach itself has no size - it's meant to be used inside a container
-        // Return zero; the container will measure individual children
-        return .zero
+        // Inside a view builder, containers receive the individual children instead.
+        // Standalone, the children are stacked vertically (matching render)
+        var width: Float = 0
+        var height: Float = 0
+        for view in getViews() {
+            let size = view.sizeThatFits(ProposedSize(width: proposal.width, height: nil))
+            width = max(width, size.width)
+            height += size.height
+        }
+        return Size(width: width, height: height)
     }
     
     public func render(in bounds: UIRect, context: UIRenderContext) {
@@ -73,7 +80,7 @@ public final class ForEach<Data: RandomAccessCollection>: View where Data.Index 
 
 /// ForEach for identifiable data
 @MainActor
-public final class ForEachIdentifiable<Data: RandomAccessCollection, ID: Hashable>: View {
+public final class ForEachIdentifiable<Data: RandomAccessCollection, ID: Hashable>: View, ViewChildrenProvider {
     
     private let data: Data
     private let idKeyPath: KeyPath<Data.Element, ID>
@@ -86,7 +93,15 @@ public final class ForEachIdentifiable<Data: RandomAccessCollection, ID: Hashabl
     }
     
     public func sizeThatFits(_ proposal: ProposedSize) -> Size {
-        return .zero
+        // Standalone, the children are stacked vertically (matching render)
+        var width: Float = 0
+        var height: Float = 0
+        for element in data {
+            let size = content(element).sizeThatFits(ProposedSize(width: proposal.width, height: nil))
+            width = max(width, size.width)
+            height += size.height
+        }
+        return Size(width: width, height: height)
     }
     
     public func render(in bounds: UIRect, context: UIRenderContext) {

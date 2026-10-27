@@ -1,96 +1,97 @@
-
-
-/// A view that conditionally shows one of two views
+/// Combine builder output into a single view
 @MainActor
-public final class ConditionalView<TrueContent: View, FalseContent: View>: View {
+private func singleView(_ views: [any View]) -> any View {
+    views.count == 1 ? views[0] : VStack(children: views)
+}
+
+/// A view that shows one of two views, re-checking the condition every time it is
+/// measured, rendered or receives input. Each branch is built once and kept, so
+/// controls inside keep their state (e.g. a pressed button).
+@MainActor
+public final class ConditionalView: View {
     
     private let condition: () -> Bool
-    private let trueContent: () -> TrueContent
-    private let falseContent: () -> FalseContent
+    private let trueBuilder: () -> [any View]
+    private let falseBuilder: () -> [any View]
+    private var trueContent: (any View)?
+    private var falseContent: (any View)?
     
     public init(
         _ condition: @escaping @autoclosure () -> Bool,
-        @ViewBuilder then trueContent: @escaping () -> TrueContent,
-        @ViewBuilder else falseContent: @escaping () -> FalseContent
+        @ViewBuilder then trueContent: @escaping () -> [any View],
+        @ViewBuilder else falseContent: @escaping () -> [any View]
     ) {
         self.condition = condition
-        self.trueContent = trueContent
-        self.falseContent = falseContent
+        self.trueBuilder = trueContent
+        self.falseBuilder = falseContent
+    }
+    
+    /// The branch selected by the current condition
+    private var current: any View {
+        if condition() {
+            if trueContent == nil { trueContent = singleView(trueBuilder()) }
+            return trueContent!
+        } else {
+            if falseContent == nil { falseContent = singleView(falseBuilder()) }
+            return falseContent!
+        }
     }
     
     public func sizeThatFits(_ proposal: ProposedSize) -> Size {
-        if condition() {
-            return trueContent().sizeThatFits(proposal)
-        } else {
-            return falseContent().sizeThatFits(proposal)
-        }
+        current.sizeThatFits(proposal)
     }
     
     public func render(in bounds: UIRect, context: UIRenderContext) {
-        if condition() {
-            trueContent().render(in: bounds, context: context)
-        } else {
-            falseContent().render(in: bounds, context: context)
-        }
+        current.render(in: bounds, context: context)
     }
     
     public func handleMouse(_ event: MouseEvent, in bounds: UIRect) -> Bool {
-        if condition() {
-            return trueContent().handleMouse(event, in: bounds)
-        } else {
-            return falseContent().handleMouse(event, in: bounds)
-        }
+        current.handleMouse(event, in: bounds)
     }
     
     public func handleKeyboard(_ event: KeyboardEvent) -> Bool {
-        if condition() {
-            return trueContent().handleKeyboard(event)
-        } else {
-            return falseContent().handleKeyboard(event)
-        }
+        current.handleKeyboard(event)
     }
 }
 
-/// A view that optionally shows content
+/// A view that shows its content only while a condition holds (re-checked every time
+/// it is measured, rendered or receives input). The content is built once and kept.
 @MainActor
-public final class OptionalView<Content: View>: View {
+public final class OptionalView: View {
     
     private let condition: () -> Bool
-    private let content: () -> Content
+    private let builder: () -> [any View]
+    private var content: (any View)?
     
     public init(
         _ condition: @escaping @autoclosure () -> Bool,
-        @ViewBuilder content: @escaping () -> Content
+        @ViewBuilder content: @escaping () -> [any View]
     ) {
         self.condition = condition
-        self.content = content
+        self.builder = content
+    }
+    
+    /// The content, or nil while the condition is false
+    private var visibleContent: (any View)? {
+        guard condition() else { return nil }
+        if content == nil { content = singleView(builder()) }
+        return content
     }
     
     public func sizeThatFits(_ proposal: ProposedSize) -> Size {
-        if condition() {
-            return content().sizeThatFits(proposal)
-        }
-        return .zero
+        visibleContent?.sizeThatFits(proposal) ?? .zero
     }
     
     public func render(in bounds: UIRect, context: UIRenderContext) {
-        if condition() {
-            content().render(in: bounds, context: context)
-        }
+        visibleContent?.render(in: bounds, context: context)
     }
     
     public func handleMouse(_ event: MouseEvent, in bounds: UIRect) -> Bool {
-        if condition() {
-            return content().handleMouse(event, in: bounds)
-        }
-        return false
+        visibleContent?.handleMouse(event, in: bounds) ?? false
     }
     
     public func handleKeyboard(_ event: KeyboardEvent) -> Bool {
-        if condition() {
-            return content().handleKeyboard(event)
-        }
-        return false
+        visibleContent?.handleKeyboard(event) ?? false
     }
 }
 
@@ -98,19 +99,19 @@ public final class OptionalView<Content: View>: View {
 
 /// Show content only when condition is true
 @MainActor
-public func If<Content: View>(
+public func If(
     _ condition: @escaping @autoclosure () -> Bool,
-    @ViewBuilder then content: @escaping () -> Content
-) -> OptionalView<Content> {
+    @ViewBuilder then content: @escaping () -> [any View]
+) -> OptionalView {
     OptionalView(condition(), content: content)
 }
 
 /// Show one of two views based on condition
 @MainActor
-public func If<TrueContent: View, FalseContent: View>(
+public func If(
     _ condition: @escaping @autoclosure () -> Bool,
-    @ViewBuilder then trueContent: @escaping () -> TrueContent,
-    @ViewBuilder else falseContent: @escaping () -> FalseContent
-) -> ConditionalView<TrueContent, FalseContent> {
+    @ViewBuilder then trueContent: @escaping () -> [any View],
+    @ViewBuilder else falseContent: @escaping () -> [any View]
+) -> ConditionalView {
     ConditionalView(condition(), then: trueContent, else: falseContent)
 }
