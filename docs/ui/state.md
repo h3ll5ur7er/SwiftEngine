@@ -118,7 +118,7 @@ class FormScene: GameObjectScene {
         uiRoot = UIRoot {
             VStack(alignment: .leading, spacing: 15) {
                 Text("Login")
-                    .scale(2)
+                    .fontSize(2)
                 
                 HStack {
                     Text("Username:")
@@ -145,7 +145,7 @@ class FormScene: GameObjectScene {
                     self.login()
                 }
                 .padding(10)
-                .background(.blue)
+                .backgroundColor(.blue)
             }
             .padding(30)
         }
@@ -196,36 +196,51 @@ For more complex state management, use `UIState` and `StateObject`:
 
 ### UIState
 
-Wraps a value with change observation:
+Wraps a value with change observation. It can be used directly or as a property wrapper (`@UIState var count = 0`, where `$count` is the `UIState` itself):
 
 ```swift
-let counter = UIState(initialValue: 0)
+let counter = UIState(wrappedValue: 0)
 
 // Get value
-let current = counter.value
+let current = counter.wrappedValue
 
 // Set value
-counter.value = 10
+counter.wrappedValue = 10
 
-// Observe changes
-counter.onChange { newValue in
-    print("Counter changed to \(newValue)")
+// Observe changes (the observer takes no arguments; read the value yourself)
+counter.observe {
+    print("Counter changed to \(counter.wrappedValue)")
 }
+
+// Pass to a control as a Binding
+let volume = UIState<Float>(wrappedValue: 0.5)
+Slider(value: Binding(volume), range: 0...1)
 ```
 
-### StateObject
+### ViewModel and StateObject
 
-Container for observable state:
+Observable state lives in a subclass of `ViewModel`. Call `notifyChange()` after changing a property, and register observers with `onChanged(_:)`:
 
 ```swift
-class GameState: StateObject {
-    @Published var score = 0
-    @Published var lives = 3
-    @Published var level = 1
+final class GameState: ViewModel {
+    var score = 0 { didSet { notifyChange() } }
+    var lives = 3 { didSet { notifyChange() } }
+    var level = 1 { didSet { notifyChange() } }
 }
 
 let state = GameState()
+state.onChanged {
+    print("Score: \(state.score)")
+}
 state.score = 100
+```
+
+A `@Published` property wrapper is also available for `ViewModel` properties (its `$property` is a `Binding`), but it only notifies after its owner has been set with `_property.setOwner(self)`.
+
+`StateObject` is a property wrapper (not a base class) that lazily creates and keeps a `ViewModel` instance:
+
+```swift
+@StateObject var state = GameState()
 ```
 
 ## Best Practices

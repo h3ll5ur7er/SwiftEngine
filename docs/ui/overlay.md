@@ -61,23 +61,21 @@ class GameScene: GameObjectScene {
         scoreText?.content = "Score: \(score)"
     }
     
-    override func render(context: RenderContext) {
-        // Render 3D scene first
-        super.render(context: context)
-        
-        // Render UI overlays on top
-        renderUIOverlays(context: context)
-    }
+    // No render override needed: the default render(context:) draws the
+    // 3D scene from Camera.main and then calls renderUIOverlays(context:).
     
     override func update(context: FrameContext, input: Input) {
-        // Handle UI input first
+        // Handle UI input first (FrameContext has no screen size;
+        // use engine.windowSize)
+        let screen = engine!.windowSize
         let uiHandled = handleUIOverlayInput(
             input,
-            screenWidth: Float(context.width),
-            screenHeight: Float(context.height)
+            screenWidth: Float(screen.width),
+            screenHeight: Float(screen.height)
         )
         
         // Only handle game input if UI didn't consume it
+        // (true only when the mouse is over an overlay with blocksInput)
         if !uiHandled {
             // Game input handling
         }
@@ -91,10 +89,10 @@ class GameScene: GameObjectScene {
 
 ### Screen Anchors
 
-Position overlays at specific screen locations:
+Position overlays at specific screen locations. There is no default anchor: with `anchor == nil` (and no `size`) the overlay covers the full screen. With an anchor but no `size`, the overlay fits its content's ideal size plus `padding` and is placed by the anchor.
 
 ```swift
-// Top-left corner (default)
+// Top-left corner
 overlay.anchor(.topLeft)
 
 // Center of screen
@@ -123,7 +121,7 @@ overlay.anchor(UIOverlay.Anchor(x: 0.5, y: 0.25))
 
 ### Fixed Size Overlays
 
-Create fixed-size UI panels:
+Create fixed-size UI panels. A fixed `size` is placed by the anchor (at the top-left if there is no anchor):
 
 ```swift
 let minimap = createGameObject(name: "Minimap")
@@ -165,6 +163,8 @@ Prevent input from reaching lower overlays:
 // Pause menu blocks input to HUD
 pauseMenuOverlay.blocksInput = true
 ```
+
+Input is routed to an overlay only while the mouse is within its bounds (the area it was last rendered in). `handleUIOverlayInput` returns `true` only when an overlay under the mouse has `blocksInput` set (overlays below it then get nothing); an overlay without `blocksInput` passes the input on to the overlays below it.
 
 ## Multiple Overlays Example
 
@@ -213,7 +213,7 @@ class GameScene: GameObjectScene {
             VStack(spacing: 20) {
                 Text("PAUSED")
                     .foregroundColor(.white)
-                    .scale(2)
+                    .fontSize(2)
                 Button("Resume") {
                     self.resumeGame()
                 }
@@ -265,8 +265,8 @@ func showVictoryScreen() {
     overlay.setContent {
         VStack(spacing: 20) {
             Text("VICTORY!")
-                .foregroundColor(.gold)
-                .scale(3)
+                .foregroundColor(.yellow)
+                .fontSize(3)
             Text("Final Score: \(score)")
             Button("Play Again") {
                 self.restartGame()
@@ -306,7 +306,9 @@ UIOverlayManager.shared.notifyDepthChanged()
 The framework adds convenience methods to `GameObjectScene`:
 
 ```swift
-// Render all UI overlays (call at end of render)
+// Render all UI overlays. The default render(context:) already calls this
+// after drawing the 3D scene; only call it yourself if you override render
+// without calling super.render.
 renderUIOverlays(context: context)
 
 // Handle input for overlays (call at start of update)
@@ -333,10 +335,11 @@ class MyGameScene: GameObjectScene {
     
     override func update(context: FrameContext, input: Input) {
         // 1. Handle UI input
+        let screen = engine!.windowSize
         let uiHandled = handleUIOverlayInput(
-            engine!.input,
-            screenWidth: Float(context.width),
-            screenHeight: Float(context.height)
+            input,
+            screenWidth: Float(screen.width),
+            screenHeight: Float(screen.height)
         )
         
         // 2. Handle game input if UI didn't consume it
@@ -349,14 +352,10 @@ class MyGameScene: GameObjectScene {
     }
     
     override func render(context: RenderContext) {
-        // 1. Clear screen
-        context.renderer.clear(.black)
-        
-        // 2. Render 3D scene
+        // Clears the screen, renders the 3D scene from Camera.main,
+        // then renders the UI overlays on top. Don't call
+        // renderUIOverlays(context:) again after this.
         super.render(context: context)
-        
-        // 3. Render UI on top
-        renderUIOverlays(context: context)
     }
 }
 ```
@@ -369,6 +368,6 @@ class MyGameScene: GameObjectScene {
 | `blocksInput` | `Bool` | `false` | Block input to lower overlays |
 | `isVisible` | `Bool` | `true` | Whether overlay is rendered |
 | `anchor` | `Anchor?` | `nil` | Screen position (nil = full screen) |
-| `size` | `Size?` | `nil` | Fixed size (nil = fill available) |
+| `size` | `Size?` | `nil` | Fixed size (nil = full screen without an anchor, fit content plus padding with one) |
 | `padding` | `EdgeInsets` | `0` | Content padding |
 | `backgroundColor` | `Color?` | `nil` | Background color |

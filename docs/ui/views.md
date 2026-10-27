@@ -9,7 +9,7 @@ Displays text content.
 ```swift
 Text("Hello, World!")
     .foregroundColor(.white)
-    .scale(2)  // Double size
+    .fontSize(2)  // Double size
 ```
 
 ### Modifiers
@@ -18,8 +18,8 @@ Text("Hello, World!")
 Text("Styled")
     .foregroundColor(.yellow)  // Text color
     .color(.yellow)            // Alias for foregroundColor
-    .scale(1)                  // Font scale (1 = normal)
-    .alignment(.center)        // .leading, .center, .trailing
+    .fontSize(1)               // Font scale (1 = normal)
+    .multilineTextAlignment(.center)  // .leading, .center, .trailing
 ```
 
 ### Properties
@@ -87,7 +87,7 @@ UIRectangle()
 ```swift
 UIRectangle()
     .fill(.red)           // Fill color
-    .stroke(.white, 2)    // Border color and width
+    .stroke(.white, lineWidth: 2)  // Border color and width
     .cornerRadius(8)      // Rounded corners
 ```
 
@@ -130,7 +130,7 @@ ForEach(items) { item in
 
 ## ConditionalView
 
-Shows different content based on a condition (used internally by ViewBuilder).
+Shows one of two views based on a condition that is re-checked whenever it is measured, rendered or receives input (it is what the `If(_:then:else:)` helper returns). Inside a `@ViewBuilder` closure you can simply write `if`/`else`, but that condition is evaluated once, when the closure runs.
 
 ```swift
 // In a ViewBuilder context, use if/else directly:
@@ -143,15 +143,15 @@ VStack {
 }
 ```
 
-## EmptyView
+## Optional Content
 
-A view that renders nothing, useful as a placeholder.
+There is no `EmptyView`. To show content only when a condition holds, use an `if` without an `else` inside a `@ViewBuilder` closure; nothing is added when the condition is false.
 
 ```swift
-if showContent {
-    Text("Content")
-} else {
-    EmptyView()
+VStack {
+    if showContent {
+        Text("Content")
+    }
 }
 ```
 
@@ -163,7 +163,7 @@ Views can be freely combined within containers:
 VStack(spacing: 20) {
     Text("Title")
         .foregroundColor(.white)
-        .scale(2)
+        .fontSize(2)
     
     Divider()
         .color(.gray)

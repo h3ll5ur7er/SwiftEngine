@@ -17,32 +17,29 @@ Button("Click Me") {
 ```swift
 Button("Styled", action: { })
     .foregroundColor(.white)
-    .background(.blue)
+    .backgroundColor(.blue)
     .padding(10)
     .cornerRadius(4)
 ```
 
+Use the button's own `backgroundColor(_:)`; the generic `.background(_:)` modifier paints behind the button, where its own background covers it.
+
 ### Button States
 
-Buttons automatically show hover states. The background color lightens slightly when hovered.
-
-### Disabled State
-
-```swift
-Button("Disabled", action: { })
-    .disabled(true)
-```
+Buttons automatically show hover and pressed states. The background lightens when hovered and darkens while pressed; `backgroundColor(_:)` derives both shades from the color you set.
 
 ## TextField
 
 Single-line text input field.
 
 ```swift
-@State private var name = ""
+@UIState private var name = ""
 
-TextField(text: $name, placeholder: "Enter name...")
+TextField(text: Binding($name), placeholder: "Enter name...")
     .frame(width: 200, height: 28)
 ```
+
+`$name` is the `UIState` itself, not a `Binding`, so wrap it with `Binding(_:)` when passing it to a control.
 
 ### With Binding
 
@@ -67,26 +64,30 @@ class MyScene {
 
 ```swift
 TextField(text: binding)
-    .frame(width: 250, height: 32)
-    .background(Color(r: 40, g: 40, b: 40))
+    .backgroundColor(Color(r: 40, g: 40, b: 40))
     .foregroundColor(.white)
     .borderColor(.gray)
+    .frame(width: 250, height: 32)
 ```
+
+Call the text field's own modifiers (`backgroundColor`, `foregroundColor`, `borderColor`, `focusedBorderColor`, `placeholder`, `fontSize`) before generic modifiers such as `.frame` or `.background`, which wrap it in a different view type.
 
 ### Features
 - Cursor with blinking animation
-- Text selection (click and drag)
-- Backspace to delete
+- Click to focus and place the cursor
+- Left/Right arrows move the cursor
+- Backspace and Delete to remove characters
 - Character input
+- Enter calls the `onSubmit` handler
 
 ## Slider
 
 A draggable slider for numeric values.
 
 ```swift
-@State private var volume: Float = 0.5
+@UIState private var volume: Float = 0.5
 
-Slider(value: $volume, range: 0...1)
+Slider(value: Binding($volume), range: 0...1)
     .frame(width: 200, height: 20)
 ```
 
@@ -118,9 +119,9 @@ Slider(value: binding, range: 0...1)
 An on/off switch control.
 
 ```swift
-@State private var enabled = true
+@UIState private var enabled = true
 
-Toggle(isOn: $enabled)
+Toggle(isOn: Binding($enabled))
 ```
 
 ### With Label
@@ -128,7 +129,7 @@ Toggle(isOn: $enabled)
 ```swift
 HStack {
     Text("Enable Sound")
-    Toggle(isOn: $soundEnabled)
+    Toggle(isOn: Binding($soundEnabled))
 }
 ```
 
@@ -145,10 +146,10 @@ Toggle(isOn: binding)
 A checkable box control.
 
 ```swift
-@State private var accepted = false
+@UIState private var accepted = false
 
 HStack {
-    Checkbox(isChecked: $accepted)
+    Checkbox(isChecked: Binding($accepted))
     Text("I accept the terms")
 }
 ```
@@ -156,7 +157,7 @@ HStack {
 ### With Label
 
 ```swift
-Checkbox(isChecked: binding, label: "Remember me")
+Checkbox("Remember me", isChecked: binding)
 ```
 
 ### Styling
@@ -164,7 +165,7 @@ Checkbox(isChecked: binding, label: "Remember me")
 ```swift
 Checkbox(isChecked: binding)
     .checkColor(.green)      // Checkmark color
-    .boxColor(.darkGray)     // Box background
+    .backgroundColor(.darkGray)  // Box background
 ```
 
 ## Dropdown
@@ -173,9 +174,9 @@ A dropdown selection menu.
 
 ```swift
 let options = ["Easy", "Medium", "Hard"]
-@State private var selectedIndex = 0
+@UIState private var selectedIndex = 0
 
-Dropdown(options: options, selectedIndex: $selectedIndex)
+Dropdown(options: options, selectedIndex: Binding($selectedIndex))
     .frame(width: 150, height: 28)
 ```
 
@@ -199,7 +200,7 @@ Dropdown(
 - Click to open/close dropdown
 - Hover highlighting on options
 - Click outside to close
-- Keyboard navigation (coming soon)
+- Keyboard navigation while open: Up/Down move the highlight, Enter or Space selects
 
 ## ProgressBar
 
@@ -335,7 +336,7 @@ class SettingsForm {
                 self.saveSettings()
             }
             .padding(10)
-            .background(.blue)
+            .backgroundColor(.blue)
         }
         .padding(20)
     }

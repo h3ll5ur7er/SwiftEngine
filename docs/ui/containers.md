@@ -16,7 +16,7 @@ VStack(alignment: .leading, spacing: 10) {
 
 ### Parameters
 - `alignment`: `.leading`, `.center`, `.trailing` (default: `.center`)
-- `spacing`: Space between children in pixels (default: `0`)
+- `spacing`: Space between children in pixels (default: `8`)
 
 ### Modifiers
 ```swift
@@ -40,7 +40,7 @@ HStack(alignment: .center, spacing: 10) {
 
 ### Parameters
 - `alignment`: `.top`, `.center`, `.bottom` (default: `.center`)
-- `spacing`: Space between children in pixels (default: `0`)
+- `spacing`: Space between children in pixels (default: `8`)
 
 ## ZStack
 
@@ -64,7 +64,7 @@ ZStack {
 Arranges children in a grid with fixed columns.
 
 ```swift
-Grid(columns: 3, spacing: 10) {
+Grid(columns: 3, horizontalSpacing: 10, verticalSpacing: 10) {
     ForEach(items) { item in
         Text(item.name)
     }
@@ -72,8 +72,21 @@ Grid(columns: 3, spacing: 10) {
 ```
 
 ### Parameters
-- `columns`: Number of columns
-- `spacing`: Space between cells (default: `10`)
+- `columns`: Number of columns (default: `2`)
+- `horizontalSpacing`: Space between columns (default: `8`)
+- `verticalSpacing`: Space between rows (default: `8`)
+- `horizontalAlignment` / `verticalAlignment`: Alignment of each child within its cell (default: `.center`)
+
+### LazyVGrid
+
+For per-column sizing, `LazyVGrid` takes an array of column definitions (`.fixed(width)`, `.flexible(minimum:maximum:)`, `.adaptive(minimum:)`):
+
+```swift
+LazyVGrid(columns: [.fixed(80), .flexible()], spacing: 8, verticalSpacing: 8) {
+    Text("Name")
+    Text("Value")
+}
+```
 
 ## ScrollView
 
@@ -91,16 +104,24 @@ ScrollView {
 ```
 
 ### Features
-- Mouse wheel scrolling
-- Click and drag scrolling
-- Automatic content height detection
-- Scroll position tracking
+- Scrolling by dragging the scroll bar (there is no mouse wheel or content-drag scrolling)
+- Automatic content size detection
+- Programmatic scrolling
 
 ### Modifiers
 ```swift
 ScrollView { ... }
-    .scrollOffset(binding)     // Bind scroll position
-    .showsIndicators(true)     // Show scroll bar
+    .showsIndicators(vertical: true, horizontal: false)  // Which scroll bars to show
+    .indicatorStyle(color: .gray, width: 6)              // Scroll bar look
+```
+
+### Programmatic Scrolling
+```swift
+let scrollView = ScrollView { ... }
+
+scrollView.scrollTo(y: 120)    // Scroll to an offset (x and/or y)
+scrollView.scrollToTop()
+scrollView.scrollToBottom()
 ```
 
 ## TabPanel
@@ -209,27 +230,25 @@ TabPanel.Tab("Title", content: myView)
 
 ### TabBuilder
 
-The `@TabBuilder` result builder allows declarative tab definitions:
+The `@TabBuilder` result builder allows declarative tab definitions. It only supports a plain list of tabs (no `if` statements):
 
 ```swift
 @TabBuilder
 func buildTabs() -> [TabPanel.Tab] {
     TabPanel.Tab("Home") { HomeView() }
     TabPanel.Tab("Settings") { SettingsView() }
-    
-    if showAdvanced {
-        TabPanel.Tab("Advanced") { AdvancedView() }
-    }
 }
 ```
+
+To add tabs conditionally, build a `[TabPanel.Tab]` array yourself and pass it to `TabPanel(selectedIndex:tabs:)`.
 
 ### Complete Example
 
 ```swift
 class SettingsScene: GameObjectScene {
     private var uiRoot: UIRoot!
-    private var volume: Float = 0.8
-    private var musicEnabled = true
+    @UIState private var volume: Float = 0.8
+    @UIState private var musicEnabled = true
     
     override func onLoad(engine: Engine) {
         super.onLoad(engine: engine)
@@ -247,12 +266,12 @@ class SettingsScene: GameObjectScene {
                         VStack(alignment: .leading, spacing: 15) {
                             HStack {
                                 Text("Volume:")
-                                Slider(value: self.$volume, range: 0...1)
+                                Slider(value: Binding(self.$volume), range: 0...1)
                                     .frame(width: 200)
                             }
                             HStack {
                                 Text("Music:")
-                                Toggle(isOn: self.$musicEnabled)
+                                Toggle(isOn: Binding(self.$musicEnabled))
                             }
                         }
                         .padding(20)
@@ -272,10 +291,10 @@ class SettingsScene: GameObjectScene {
                         .padding(20)
                     }
                 }
-                .frame(width: 600, height: 400)
                 .onTabChanged { index in
                     print("Tab changed to: \(index)")
                 }
+                .frame(width: 600, height: 400)
             }
         }
     }
@@ -289,8 +308,10 @@ All containers support these modifiers:
 ```swift
 container
     .padding(10)                    // All sides
-    .padding(.horizontal, 20)       // Left and right
+    .padding(horizontal: 20)        // Left and right
     .frame(width: 300, height: 200) // Fixed size
     .background(.darkGray)          // Background color
     .cornerRadius(8)                // Rounded corners
 ```
+
+Chained modifiers configure a single wrapper view, so a later `padding` call replaces an earlier one rather than adding to it. Use `padding(horizontal:vertical:)` or `padding(_: EdgeInsets)` to set different insets per side.

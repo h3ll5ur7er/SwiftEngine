@@ -20,9 +20,9 @@ GameEngine includes a SwiftUI-inspired declarative UI framework for building gam
 │  │ HStack   │          │ Spacer   │          │ TextField│             │
 │  │ ZStack   │          │ Divider  │          │ Slider   │             │
 │  │ Grid     │          │ ForEach  │          │ Toggle   │             │
-│  │ ScrollView│         │ Rectangle│          │ Checkbox │             │
+│  │ ScrollView│         │UIRectangle│         │ Checkbox │             │
 │  │ TabPanel │          │          │          │ Dropdown │             │
-│  └──────────┘          └──────────┘          │ Progress │             │
+│  └──────────┘          └──────────┘          │ProgressBar│            │
 │                                              └──────────┘             │
 │                                                                          │
 │  ┌──────────────────────────────────────────────────────────────────┐  │
@@ -43,10 +43,12 @@ All UI elements conform to the `View` protocol:
 public protocol View {
     func sizeThatFits(_ proposal: ProposedSize) -> Size
     func render(in bounds: UIRect, context: UIRenderContext)
-    func handleMouseEvent(_ event: MouseEvent, in bounds: UIRect) -> Bool
-    func handleKeyEvent(_ event: KeyEvent) -> Bool
+    func handleMouse(_ event: MouseEvent, in bounds: UIRect) -> Bool
+    func handleKeyboard(_ event: KeyboardEvent) -> Bool
 }
 ```
+
+`handleMouse(_:in:)` and `handleKeyboard(_:)` have default implementations that return `false`, so a view only needs to implement them if it handles input.
 
 ### ViewBuilder
 
@@ -106,23 +108,21 @@ class MyScene: GameObjectScene {
     
     override func update(context: FrameContext, input: Input) {
         super.update(context: context, input: input)
+        
+        // Handle UI input (uses the screen size from the last render)
+        uiRoot.handleInput(input)
     }
     
     override func render(context: RenderContext) {
         context.renderer.clear(.black)
         
-        // Handle input and render UI
-        if let engine = engine {
-            uiRoot.handleInput(
-                engine.input,
-                screenWidth: Float(context.width),
-                screenHeight: Float(context.height)
-            )
-            uiRoot.render(context: context)
-        }
+        // Render UI over the whole screen
+        uiRoot.render(context)
     }
 }
 ```
+
+`UIRoot` also offers `render(_:in:)` and `handleInput(_:in:)` to draw and route input within a frame (screen coordinates), `handleInput(_:screenWidth:screenHeight:)` for an explicit screen size, and `fittingSize(maxWidth:maxHeight:renderer:)` to measure the content's ideal size plus padding. A click or key tap shorter than one frame is still delivered (as a press followed by a release).
 
 ## Documentation
 
