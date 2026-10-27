@@ -59,6 +59,32 @@ extension EngineSingletonTests {
             #expect(abs(ball.transform.position.y - 0.5) < 0.05)
         }
         
+        @Test("A plane collider's distance offsets the plane along its normal")
+        func planeDistance() {
+            let (ball, _) = makeBall(at: Vec3d(0, 4, 0))
+            scene.createGameObject(name: "Raised Floor").addComponent(PlaneCollider(normal: Vec3d(0, 1, 0), distance: 2))
+            
+            for _ in 0..<300 {
+                PhysicsSystem.shared.update(deltaTime: 1.0 / 60.0)
+            }
+            
+            #expect(abs(ball.transform.position.y - 2.5) < 0.05)
+        }
+        
+        @Test("Async physics uses the system's settings")
+        func asyncUsesSettings() async {
+            let (ball, _) = makeBall(at: Vec3d(0, 10, 0))
+            let original = PhysicsSystem.shared.settings
+            PhysicsSystem.shared.gravity = .zero
+            
+            await PhysicsSystem.shared.updateAsync(deltaTime: 1.0 / 30.0)
+            PhysicsSystem.shared.settings = original
+            await PhysicsActor.shared.configure(original)
+            
+            #expect(PhysicsSystem.shared.stepsThisFrame > 0)
+            #expect(ball.transform.position == Vec3d(0, 10, 0))
+        }
+        
         @Test("onCollision is reported once per pair per frame")
         func onCollisionReported() {
             let (ball, _) = makeBall(at: Vec3d(0, 0.45, 0))

@@ -35,10 +35,10 @@ public final class Rotator: Component {
         
         if useLocalSpace {
             // Rotate in local space (rotation happens around object's own axis)
-            transform.localRotation = rotation * transform.localRotation
+            transform.rotate(rotation, relativeTo: .local)
         } else {
             // Rotate in world space (rotation happens around world axis)
-            transform.localRotation = transform.localRotation * rotation
+            transform.rotate(rotation, relativeTo: .world)
         }
     }
 }

@@ -102,13 +102,20 @@ open class GameObjectScene: Scene {
         pendingDestroy.removeAll()
     }
     
-    /// Default rendering: clear to the main camera's background, draw all mesh renderers
-    /// from the main camera, then draw UI overlays. Override for custom rendering.
+    /// Default rendering: match the main camera's aspect ratio to the window, clear to its
+    /// background, draw all mesh renderers from it, then draw UI overlays.
+    /// Override for custom rendering.
     open func render(context: RenderContext) {
         guard let camera = Camera.main else {
             context.renderer.clear(.black)
             renderUIOverlays(context: context)
             return
+        }
+        
+        // Match the camera to the window shape
+        let aspect = Float(context.width) / Float(max(1, context.height))
+        if camera.aspectRatio != aspect {
+            camera.aspectRatio = aspect
         }
         
         context.renderer.clear(camera.backgroundColor)

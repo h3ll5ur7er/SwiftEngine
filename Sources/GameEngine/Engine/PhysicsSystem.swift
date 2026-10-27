@@ -88,7 +88,7 @@ public final class PhysicsSystem {
         waitTimeMs = Double(timer.currentTimeMillis() - startTime)
     }
 
-    /// Run physics simulation asynchronously on PhysicsActor
+    /// Run physics simulation asynchronously on PhysicsActor (using this system's settings)
     /// Call this from an async context (e.g., the game loop)
     public func updateAsync(deltaTime: Float) async {
         guard isEnabled else { return }
@@ -96,6 +96,7 @@ public final class PhysicsSystem {
         let startTime = timer.currentTimeMillis()
 
         let (input, colliders) = createPhysicsInput(deltaTime: deltaTime)
+        await PhysicsActor.shared.configure(simulation.settings)
         let result = await PhysicsActor.shared.simulate(input: input)
         apply(result, colliders: colliders)
 
@@ -143,7 +144,7 @@ public final class PhysicsSystem {
             } else if let planeCollider = collider as? PlaneCollider {
                 // Plane uses world-space normal and the distance from origin
                 let worldNormal = planeCollider.worldNormal
-                let worldPoint = planeCollider.worldCenter
+                let worldPoint = planeCollider.worldPlanePoint
                 // Plane equation: normal · point = offset
                 let offset = worldNormal.x * worldPoint.x + worldNormal.y * worldPoint.y + worldNormal.z * worldPoint.z
                 colliderType = .plane(normal: worldNormal, offset: offset)
