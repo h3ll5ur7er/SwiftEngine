@@ -57,13 +57,13 @@ renderer.mesh = MyCustomMesh()
 
 ### Material
 
-The visual appearance:
+The visual appearance. `material` is non-optional; a new `MeshRenderer` starts with a white material.
 
 ```swift
 // Using factory methods
 renderer.material = Material.solid(.red)
 renderer.material = Material.matte(Color(gray: 128))
-renderer.material = Material.metallic(.gold, roughness: 0.3)
+renderer.material = Material.metallic(.orange, roughness: 0.3)
 
 // Configure existing material
 renderer.material.color = .blue
@@ -140,16 +140,9 @@ rotator.axis = Vec3d(1, 1, 0).normalized
 rotator.speed = 2.0
 ```
 
-### Multiple Materials (Sub-meshes)
+### Multiple Materials
 
-```swift
-// For objects with multiple sub-meshes
-renderer.materials = [
-    Material.solid(.red),    // Sub-mesh 0
-    Material.solid(.green),  // Sub-mesh 1
-    Material.solid(.blue)    // Sub-mesh 2
-]
-```
+`MeshRenderer` has a `materials: [Material]` property, but `RenderPipeline` ignores it: every triangle of the mesh is drawn with `material`. To use different materials, split the geometry into separate GameObjects, each with its own `MeshRenderer`.
 
 ## Common Patterns
 
@@ -157,12 +150,15 @@ renderer.materials = [
 
 ```swift
 public final class ColorPulse: Component {
+    private var elapsed: Float = 0
+    
     public override func update(deltaTime: Float) {
         guard let renderer = gameObject?.getComponent(MeshRenderer.self) else { return }
+        elapsed += deltaTime
         
         // Pulse between two colors
-        let t = (sin(Float(totalTime) * 2) + 1) / 2
-        renderer.color = Color.lerp(from: .red, to: .blue, t: t)
+        let t = (sin(elapsed * 2) + 1) / 2
+        renderer.color = Color.lerp(.red, .blue, t: t)
     }
 }
 ```
@@ -190,15 +186,15 @@ public final class Flasher: Component {
 
 ```swift
 public final class SimpleLOD: Component {
-    var highDetailMesh: Mesh?
-    var lowDetailMesh: Mesh?
+    var highDetailMesh: (any Mesh)?
+    var lowDetailMesh: (any Mesh)?
     var lodDistance: Float = 20.0
     
     public override func update(deltaTime: Float) {
         guard let renderer = gameObject?.getComponent(MeshRenderer.self),
               let camera = Camera.main else { return }
         
-        let distance = (transform.worldPosition - camera.transform.worldPosition).length
+        let distance = (transform.position - camera.transform.position).length
         
         if distance > lodDistance {
             renderer.mesh = lowDetailMesh
@@ -211,22 +207,21 @@ public final class SimpleLOD: Component {
 
 ## Rendering Process
 
-When you call `RenderPipeline.shared.render()`:
+When you call `RenderPipeline.shared.render()` (`GameObjectScene`'s default `render(context:)` does this for you with all MeshRenderers in the scene):
 
 ```
-1. Collect all MeshRenderers
-   └─▶ Filter: isVisible && isEnabled
+1. Clear the depth buffer
 
-2. For each MeshRenderer:
+2. For each MeshRenderer passed in:
+   ├─▶ Skip unless isVisible && isEnabled and mesh != nil
    ├─▶ Frustum cull using worldBounds
-   ├─▶ Get mesh vertices and indices
-   ├─▶ Transform vertices using transform.worldMatrix
-   ├─▶ Apply material settings
-   └─▶ Add triangles to render queue
+   ├─▶ Transform vertices using transform.worldMatrix and the camera
+   └─▶ Light per vertex (Gouraud) or per face (flat) from material.color
 
-3. Sort triangles by depth
-
-4. Rasterize triangles with material colors
+3. For each triangle:
+   ├─▶ Clip against the near/far planes
+   ├─▶ Backface cull according to material.cullMode
+   └─▶ Rasterize with a per-pixel depth test (no triangle sorting)
 ```
 
 ## Performance Considerations
@@ -259,7 +254,7 @@ Accurate bounds improve frustum culling:
 
 ```swift
 // Mesh should have tight bounds
-let bounds = Bounds(
+let bounds = Bounds.fromMinMax(
     min: Vec3d(-1, -1, -1),
     max: Vec3d(1, 1, 1)
 )
@@ -315,16 +310,7 @@ public final class RenderExample: GameObjectScene {
         )
     }
     
-    public override func render(context: RenderContext) {
-        context.renderer.clear(Camera.main?.backgroundColor ?? .black)
-        guard let camera = Camera.main else { return }
-        
-        let renderers = findComponentsOfType(MeshRenderer.self)
-        RenderPipeline.shared.render(
-            meshRenderers: renderers,
-            camera: camera,
-            context: context
-        )
-    }
+    // No render override needed: GameObjectScene's default render
+    // draws all MeshRenderers from Camera.main
 }
 ```

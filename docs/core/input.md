@@ -1,6 +1,6 @@
 # Input System
 
-GameEngine provides keyboard and mouse input handling through the `Input` class.
+GameEngine provides keyboard and mouse input handling through the `Input` class. Events come from the OS window (Win32 `WM_*` messages on Windows, X11 events on Linux).
 
 ## Overview
 
@@ -10,8 +10,8 @@ GameEngine provides keyboard and mouse input handling through the `Input` class.
 │                                                                              │
 │   ┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐        │
 │   │  Window Events  │───▶│     Input       │───▶│  Your Component │        │
-│   │  (WM_KEYDOWN,   │    │  (state mgmt)   │    │  (queries)      │        │
-│   │   WM_MOUSEMOVE) │    │                 │    │                 │        │
+│   │  (Win32 WM_*,   │    │  (state mgmt)   │    │  (queries)      │        │
+│   │   Linux X11)    │    │                 │    │                 │        │
 │   └─────────────────┘    └─────────────────┘    └─────────────────┘        │
 │                                                                              │
 │   Key States:                          Mouse States:                         │
@@ -19,20 +19,22 @@ GameEngine provides keyboard and mouse input handling through the `Input` class.
 │   isKeyDown(key)     held this frame   isMouseButtonDown(button)            │
 │   isKeyPressed(key)  just pressed      isMouseButtonPressed(button)         │
 │   isKeyReleased(key) just released     isMouseButtonReleased(button)        │
-│                                        mousePosition: Vec2                  │
-│                                        mouseDelta: Vec2                     │
+│                                        getMousePosition() -> (x:, y:)       │
+│                                        getMouseDelta()    -> (x:, y:)       │
 │                                                                              │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
 ## Accessing Input
 
+There is no global input singleton. The engine owns one `Input` instance (`engine.input`) and passes it to your scene's `update(context:input:)`. Components can reach it through their scene's engine:
+
 ```swift
 @MainActor
 public final class MyComponent: Component {
     public override func update(deltaTime: Float) {
-        // Access global input instance
-        let input = Input.shared
+        // Reach the engine's input through the scene
+        guard let input = gameObject?.scene?.engine?.input else { return }
         
         if input.isKeyPressed(.space) {
             jump()
@@ -40,6 +42,8 @@ public final class MyComponent: Component {
     }
 }
 ```
+
+In a scene, use the `input` parameter of `update(context:input:)` directly.
 
 ---
 
@@ -61,6 +65,8 @@ public final class MyComponent: Component {
 │                                                                              │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
+
+`isKeyPressed` / `isKeyReleased` (and the mouse-button equivalents) report transitions that happened during the frame's event processing, so a press and release within the same frame reports both.
 
 ### Usage
 
@@ -93,8 +99,8 @@ public enum Key {
     case n, o, p, q, r, s, t, u, v, w, x, y, z
     
     // Numbers
-    case num0, num1, num2, num3, num4, num5
-    case num6, num7, num8, num9
+    case num0, num1, num2, num3, num4
+    case num5, num6, num7, num8, num9
     
     // Function keys
     case f1, f2, f3, f4, f5, f6
@@ -105,22 +111,15 @@ public enum Key {
     
     // Modifiers
     case shift, control, alt
-    case leftShift, rightShift
-    case leftControl, rightControl
-    case leftAlt, rightAlt
     
     // Special keys
-    case space, enter, escape, tab, backspace
-    case insert, delete, home, end, pageUp, pageDown
-    
-    // Numpad
-    case numpad0, numpad1, numpad2, numpad3, numpad4
-    case numpad5, numpad6, numpad7, numpad8, numpad9
-    case numpadAdd, numpadSubtract
-    case numpadMultiply, numpadDivide
-    case numpadEnter, numpadDecimal
+    case space, enter, escape, tab, backspace, delete
 }
 ```
+
+There are no separate left/right modifier keys: on Linux (X11), both left and right Shift/Control/Alt map to `.shift` / `.control` / `.alt`.
+
+> **Note:** The engine stops when Escape is pressed, so don't use `.escape` for in-game actions such as pausing.
 
 ### Common Input Patterns
 
@@ -146,7 +145,8 @@ if moveDirection.squaredLength > 0 {
 var isFlashlightOn = false
 
 public override func update(deltaTime: Float) {
-    if Input.shared.isKeyPressed(.f) {
+    guard let input = gameObject?.scene?.engine?.input else { return }
+    if input.isKeyPressed(.f) {
         isFlashlightOn.toggle()
     }
 }
@@ -204,26 +204,18 @@ if input.isMouseButtonReleased(.left) {
 
 ```swift
 // Absolute position in window (pixels)
-let position = input.mousePosition  // Vec2
+let position = input.getMousePosition()  // (x: Int32, y: Int32)
 
 // Position delta since last frame
-let delta = input.mouseDelta  // Vec2
+let delta = input.getMouseDelta()  // (x: Int32, y: Int32)
 
 // Use delta for camera rotation
-let sensitivity: Float = 0.1
-camera.yaw += delta.x * sensitivity
-camera.pitch -= delta.y * sensitivity
+let sensitivity: Float = 0.002  // radians per pixel
+yaw -= Float(delta.x) * sensitivity
+pitch -= Float(delta.y) * sensitivity
 ```
 
-### Scroll Wheel
-
-```swift
-// Scroll delta (positive = up, negative = down)
-let scrollDelta = input.scrollDelta  // Float
-
-// Zoom camera
-camera.distance -= scrollDelta * zoomSpeed
-```
+The scroll wheel is not exposed by `Input`.
 
 ---
 
@@ -231,37 +223,40 @@ camera.distance -= scrollDelta * zoomSpeed
 
 For first-person controls, capture the mouse to hide it and get unlimited movement:
 
+The window is internal to the engine; use the `Engine` methods (from a `GameObjectScene`, via its `engine` property):
+
 ```swift
 // Capture mouse (hides cursor, centers mouse each frame)
-window.captureMouse()
+engine.captureMouse()
 
 // Release mouse (shows cursor)
-window.releaseMouse()
+engine.releaseMouse()
 
-// Check capture state
-if window.isMouseCaptured {
+// Toggle capture
+engine.toggleMouseCapture()
+
+// Check capture state (engine.isMouseCaptured or input.isMouseCaptured)
+if input.isMouseCaptured {
     // Use mouse delta for camera look
-    let delta = input.mouseDelta
-    rotateCam(yaw: delta.x, pitch: delta.y)
+    let delta = input.getMouseDelta()
+    rotateCam(yaw: Float(delta.x), pitch: Float(delta.y))
 } else {
     // Use mouse position for UI
-    let pos = input.mousePosition
-    checkUIHover(at: pos)
+    let pos = input.getMousePosition()
+    checkUIHover(x: pos.x, y: pos.y)
 }
 ```
 
 ### Toggle Pattern
 
 ```swift
-public override func update(deltaTime: Float) {
+// In your GameObjectScene
+public override func update(context: FrameContext, input: Input) {
     // Toggle mouse capture with Tab
-    if Input.shared.isKeyPressed(.tab) {
-        if window.isMouseCaptured {
-            window.releaseMouse()
-        } else {
-            window.captureMouse()
-        }
+    if input.isKeyPressed(.tab) {
+        engine?.toggleMouseCapture()
     }
+    super.update(context: context, input: input)
 }
 ```
 
@@ -271,14 +266,16 @@ public override func update(deltaTime: Float) {
 
 ### Component Example
 
+The engine ships a built-in `PlayerController` (see [Built-in Components](../components/built-in.md)); this example uses a different name to avoid clashing with it.
+
 ```swift
 @MainActor
-public final class PlayerController: Component {
+public final class SimpleMover: Component {
     var moveSpeed: Float = 5.0
-    var lookSensitivity: Float = 0.1
+    var lookSensitivity: Float = 0.002  // radians per pixel
     
     public override func update(deltaTime: Float) {
-        let input = Input.shared
+        guard let input = gameObject?.scene?.engine?.input else { return }
         
         // Movement
         var move = Vec3d.zero
@@ -289,16 +286,15 @@ public final class PlayerController: Component {
         
         if move.squaredLength > 0 {
             move = move.normalized * moveSpeed * deltaTime
-            transform.position += transform.rotation.rotate(move)
+            transform.position += transform.rotation * move
         }
         
         // Look (when mouse captured)
-        if let window = gameObject?.scene?.engine?.window,
-           window.isMouseCaptured {
-            let delta = input.mouseDelta
+        if input.isMouseCaptured {
+            let delta = input.getMouseDelta()
             transform.rotation = Quaternion.fromAxisAngle(
                 axis: .up,
-                angle: -delta.x * lookSensitivity * deltaTime
+                angle: -Float(delta.x) * lookSensitivity
             ) * transform.rotation
         }
         
@@ -339,7 +335,7 @@ public final class PlayerController: Component {
 
 1. **Use `isKeyPressed` for single actions** (jump, shoot, toggle)
 2. **Use `isKeyDown` for continuous actions** (move, sprint)
-3. **Cache Input.shared** in a local variable for repeated access
+3. **Pass input down from the scene** (or use `engine.input`); there is no global `Input.shared`
 4. **Use mouse delta, not position** for camera rotation
 5. **Capture mouse** for first-person controls
 6. **Handle edge cases** - check for nil game objects, etc.

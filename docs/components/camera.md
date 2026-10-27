@@ -13,11 +13,11 @@ The Camera component defines how the 3D world is viewed and projected onto the s
 │  projection: .perspective         (from Transform)                       │
 │  fieldOfView: 60.0°               position                               │
 │  nearClipPlane: 0.1               rotation                               │
-│  farClipPlane: 100.0                                                     │
-│  aspect: auto                     Static Access                          │
+│  farClipPlane: 1000.0                                                    │
+│  aspectRatio: 16/9                Static Access                          │
 │                                   ─────────────                          │
 │  Display Settings                 Camera.main                            │
-│  ────────────────                 Camera.all                             │
+│  ────────────────                 setAsMain()                            │
 │  backgroundColor: Color                                                  │
 │                                                                          │
 └─────────────────────────────────────────────────────────────────────────┘
@@ -34,6 +34,14 @@ camera.fieldOfView = 60.0
 camera.nearClipPlane = 0.1
 camera.farClipPlane = 100.0
 camera.backgroundColor = Color(r: 30, g: 30, b: 40)
+```
+
+### Aspect Ratio
+
+`aspectRatio` defaults to 16/9. `GameObjectScene`'s default `render(context:)` sets `Camera.main`'s aspect ratio from the window size every frame. If you override `render`, set it yourself:
+
+```swift
+camera.aspectRatio = Float(context.width) / Float(max(1, context.height))
 ```
 
 ## Projection Types
@@ -133,7 +141,7 @@ camera.backgroundColor = .vsCodeDark  // Dark IDE theme
 
 ### Main Camera
 
-The first enabled camera is automatically the "main" camera:
+The first `Camera` created becomes `Camera.main` (assigned in its `awake()`). Later cameras do not replace it:
 
 ```swift
 // Access the main camera from anywhere
@@ -142,19 +150,14 @@ if let camera = Camera.main {
 }
 ```
 
-### All Cameras
+### Switching Cameras
 
 ```swift
-// Get all active cameras
-let cameras = Camera.all
-
-// Render from multiple viewpoints
-for camera in cameras {
-    RenderPipeline.shared.render(meshRenderers: renderers, 
-                                  camera: camera, 
-                                  context: context)
-}
+// Make another camera the main camera
+otherCamera.setAsMain()
 ```
+
+If the main camera is destroyed, `Camera.main` becomes `nil` until another camera calls `setAsMain()`.
 
 ## Camera Matrices
 
@@ -194,7 +197,7 @@ The camera's visible volume:
 let frustum = camera.frustum
 
 // Check if a point is visible
-if frustum.containsPoint(worldPosition) {
+if frustum.containsPoint(point) {
     // Point is in view
 }
 
@@ -262,12 +265,12 @@ public final class FollowCamera: Component {
         guard let target = target else { return }
         
         // Position behind target
-        let targetPos = target.worldPosition
-        transform.localPosition = targetPos + offset
+        let targetPos = target.position
+        transform.position = targetPos + offset
         
         // Look at target
-        let direction = (targetPos - transform.worldPosition).normalized
-        transform.localRotation = Quaternion.lookRotation(
+        let direction = (targetPos - transform.position).normalized
+        transform.rotation = Quaternion.lookRotation(
             forward: direction,
             up: Vec3d.up
         )
@@ -295,10 +298,12 @@ controller.enableMouseLook = true
 let player = createGameObject(name: "Player")
 // ... player setup ...
 
-let cameraArm = createGameObject(name: "CameraArm", parent: player)
+let cameraArm = createGameObject(name: "CameraArm")
+cameraArm.setParent(player)
 cameraArm.transform.localPosition = Vec3d(0, 2, 0)
 
-let cameraObj = createGameObject(name: "Camera", parent: cameraArm)
+let cameraObj = createGameObject(name: "Camera")
+cameraObj.setParent(cameraArm)
 cameraObj.transform.localPosition = Vec3d(0, 0, 5)  // Behind player
 cameraObj.addComponent(Camera.self)
 

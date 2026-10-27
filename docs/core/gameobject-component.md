@@ -39,8 +39,9 @@ public final class MyScene: GameObjectScene {
         // Create at specific position
         let obj2 = createGameObject(name: "Object2", at: Vec3d(5, 0, 0))
         
-        // Create with parent (becomes child)
-        let child = createGameObject(name: "Child", parent: obj1)
+        // Create, then parent it (becomes child)
+        let child = createGameObject(name: "Child")
+        child.setParent(obj1)
     }
 }
 ```
@@ -53,6 +54,9 @@ let gameObject = GameObject(name: "MyObject")
 
 // Access transform
 gameObject.transform.localPosition = Vec3d(1, 2, 3)
+
+// Add it to a scene later
+scene.addGameObject(gameObject)
 ```
 
 ## Adding Components
@@ -89,47 +93,59 @@ let hasCamera = gameObject.hasComponent(Camera.self)
 
 ### In the Entire Scene
 
+These are `GameObjectScene` methods. Inside a component, reach the scene through `gameObject?.scene`.
+
 ```swift
 // Find first component of type in scene
-let mainCamera = findComponentOfType(Camera.self)
+let mainCamera = findComponentsOfType(Camera.self).first
 
 // Find all components of type in scene
 let allRenderers = findComponentsOfType(MeshRenderer.self)
+
+// Find all GameObjects that have a component of type
+let litObjects = findObjectsOfType(MeshRenderer.self)
+
+// From inside a component
+let renderers = gameObject?.scene?.findComponentsOfType(MeshRenderer.self) ?? []
 ```
 
 ### Finding GameObjects
 
 ```swift
 // Find by name (first match)
-let player = findGameObject(named: "Player")
+let player = find(name: "Player")
 
 // Find all with name
-let enemies = findGameObjects(named: "Enemy")
+let enemies = findAll(name: "Enemy")
 
 // Find by tag
-let collectibles = findGameObjectsWithTag("collectible")
+let collectibles = findWithTag("collectible")
+let boss = findFirstWithTag("boss")
 ```
 
 ## Removing Components
 
 ```swift
 // Remove specific component
-let camera = gameObject.getComponent(Camera.self)
-gameObject.removeComponent(camera)
+if let camera = gameObject.getComponent(Camera.self) {
+    gameObject.removeComponent(camera)
+}
 
 // Remove all of type
-gameObject.removeComponents(ofType: MeshRenderer.self)
+gameObject.removeComponents(MeshRenderer.self)
 ```
 
 ## Destroying GameObjects
 
 ```swift
-// Mark for destruction (destroyed at end of frame)
-destroyGameObject(enemy)
+// Mark for destruction (destroyed at end of frame, children included)
+destroy(enemy)
 
-// Immediate destruction
-gameObject.destroy()
+// From inside a component: destroy this component's GameObject
+if let gameObject { gameObject.scene?.destroy(gameObject) }
 ```
+
+There is no immediate destruction; `destroy(_:)` always defers to the end of the current frame and calls `onDestroy()` on each component.
 
 ## Component Lifecycle
 
@@ -227,7 +243,8 @@ Scene
 ```swift
 // Create hierarchy
 let player = createGameObject(name: "Player")
-let gun = createGameObject(name: "Gun", parent: player)
+let gun = createGameObject(name: "Gun")
+gun.setParent(player)
 
 // Gun position is relative to player
 gun.transform.localPosition = Vec3d(0.5, 0, -0.3)
@@ -241,7 +258,7 @@ gun.setParent(nil)               // Becomes root
 gun.setParent(player)            // Back to player
 
 // World position (accounts for parent transforms)
-let worldPos = gun.transform.worldPosition
+let worldPos = gun.transform.position
 ```
 
 ## Common Patterns
@@ -255,7 +272,7 @@ public final class Gun: Component {
     
     public override func start() {
         // Find required components
-        ammoDisplay = findComponentOfType(AmmoUI.self)
+        ammoDisplay = gameObject?.scene?.findComponentsOfType(AmmoUI.self).first
     }
     
     func fire() {
@@ -268,8 +285,8 @@ public final class Gun: Component {
 public final class Enemy: Component {
     public override func update(deltaTime: Float) {
         // Find player each frame (or cache it)
-        if let player = findGameObject(named: "Player") {
-            let direction = player.transform.worldPosition - transform.worldPosition
+        if let player = gameObject?.scene?.find(name: "Player") {
+            let direction = player.transform.position - transform.position
             // Move toward player...
         }
     }
@@ -279,12 +296,13 @@ public final class Enemy: Component {
 ### Component Dependencies
 
 ```swift
-public final class MeshRenderer: Component {
+public final class Jumper: Component {
+    private var body: RigidBody?
+    
     public override func awake() {
-        // Ensure we have a Material
-        if material == nil {
-            material = Material.solid(.white)
-        }
+        // Ensure we have a RigidBody
+        body = gameObject?.getComponent(RigidBody.self)
+            ?? gameObject?.addComponent(RigidBody.self)
     }
 }
 ```

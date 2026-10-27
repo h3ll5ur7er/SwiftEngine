@@ -4,7 +4,7 @@ GameEngine includes several utility components for common functionality.
 
 ## PlayerController
 
-First-person movement controller with keyboard support.
+First-person movement controller with keyboard movement and optional mouse look. It reads input only through `setInput(_:)`, so your scene must pass it the frame's `Input` (see below).
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────┐
@@ -31,8 +31,9 @@ player.addComponent(Camera.self)
 
 let controller = player.addComponent(PlayerController.self)
 controller.moveSpeed = 5.0      // Units per second
-controller.lookSpeed = 2.0      // Radians per second
+controller.lookSpeed = 0.002    // Mouse sensitivity, radians per pixel
 controller.useArrowKeys = true  // Enable arrow keys as alternative
+controller.enableMouseLook = true  // Look with the mouse while it is captured
 ```
 
 ### Usage in Scene
@@ -66,8 +67,8 @@ public final class MyScene: GameObjectScene {
 // Movement speed in units per second
 controller.moveSpeed = 5.0
 
-// Rotation speed in radians per second
-controller.lookSpeed = 2.0
+// Mouse sensitivity in radians per pixel of mouse movement (default 0.002)
+controller.lookSpeed = 0.002
 
 // Primary WASD keys
 controller.forwardKey = .w
@@ -80,8 +81,23 @@ controller.downKey = .q
 // Enable arrow key alternatives
 controller.useArrowKeys = true
 
-// Mouse look (future feature)
-controller.enableMouseLook = false
+// Mouse look (default false)
+controller.enableMouseLook = true
+
+// Pitch limits in radians (default just under ±90°)
+controller.minPitch = -.pi / 2 + 0.01
+controller.maxPitch = .pi / 2 - 0.01
+```
+
+### Mouse Look
+
+When `enableMouseLook` is `true` and the mouse is captured, the controller turns the mouse delta into yaw (around Y) and pitch (around X, clamped to `minPitch`...`maxPitch`) and sets `transform.localRotation`. Horizontal movement follows the yaw only, so looking up or down doesn't change the movement plane; `E`/`Q` always move along world Y.
+
+The controller does not capture the mouse itself. Do it from your scene, for example:
+
+```swift
+if input.isMouseButtonPressed(.left) { engine?.captureMouse() }
+if input.isMouseButtonPressed(.right) { engine?.releaseMouse() }
 ```
 
 ### Custom Key Bindings
@@ -170,15 +186,18 @@ rotator.speed = Float.pi * 10  // Fast spin
 
 ```swift
 // Local space (default)
-// The object rotates around its own axis
+// `axis` is in the object's own space: the object spins around its own axis
 // Good for: spinning tops, wheels
 rotator.useLocalSpace = true
 
 // World space
-// The object rotates around the world axis
-// Good for: orbiting, planetary rotation
+// `axis` is in world space: the object spins around the world axis
+// through its own position
+// Good for: turntables that stay level regardless of the object's tilt
 rotator.useLocalSpace = false
 ```
+
+Rotator only changes rotation, never position, so neither mode makes an object orbit a point. To orbit, parent the object to a pivot GameObject and put the Rotator on the pivot.
 
 ```
 Local Space Rotation:              World Space Rotation:
@@ -187,10 +206,11 @@ Local Space Rotation:              World Space Rotation:
         
        ╱                                  ╱
       ╱  ↻ rotates around               ╱
-     ╱     own axis                    ╱   ↻ rotates around
+     ╱     own (tilted) axis           ╱   ↻ rotates around
     ●────                             ●────   world Y axis
                                       
-  Result: Wobbles                    Result: Orbits
+  Result: Spins steadily             Result: Tilted axis sweeps
+          about its tilt                     around world Y (wobbles)
 ```
 
 ---

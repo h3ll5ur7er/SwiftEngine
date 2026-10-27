@@ -1,6 +1,6 @@
 # Transform
 
-Every GameObject has a Transform component that defines its position, rotation, and scale.
+Every GameObject has a `Transform` that defines its position, rotation, and scale. `Transform` is a class, not a `Component`: it is created with the GameObject and accessed through `gameObject.transform` (or `transform` inside a component).
 
 ## Overview
 
@@ -15,9 +15,9 @@ Every GameObject has a Transform component that defines its position, rotation, 
 │   ┌─────────────────────────────────────────────────────────────┐   │
 │   │                    Computed Properties                       │   │
 │   │                                                              │   │
-│   │   worldPosition  ◀───  localPosition + parent transforms    │   │
-│   │   worldRotation  ◀───  localRotation * parent rotations     │   │
-│   │   worldScale     ◀───  localScale * parent scales           │   │
+│   │   position       ◀───  localPosition + parent transforms    │   │
+│   │   rotation       ◀───  localRotation * parent rotations     │   │
+│   │   lossyScale     ◀───  localScale * parent scales           │   │
 │   │   worldMatrix    ◀───  combined 4x4 transformation matrix   │   │
 │   └─────────────────────────────────────────────────────────────┘   │
 └─────────────────────────────────────────────────────────────────────┘
@@ -48,7 +48,8 @@ relative to its parent                    world coordinates
 
 ```swift
 let parent = createGameObject(name: "Parent", at: Vec3d(10, 0, 0))
-let child = createGameObject(name: "Child", parent: parent)
+let child = createGameObject(name: "Child")
+child.setParent(parent)
 
 child.transform.localPosition = Vec3d(2, 0, 0)
 
@@ -56,7 +57,7 @@ child.transform.localPosition = Vec3d(2, 0, 0)
 print(child.transform.localPosition)  // Vec3d(2, 0, 0)
 
 // World position is (12, 0, 0) - absolute in scene
-print(child.transform.worldPosition)  // Vec3d(12, 0, 0)
+print(child.transform.position)  // Vec3d(12, 0, 0)
 ```
 
 ## Position
@@ -66,6 +67,9 @@ print(child.transform.worldPosition)  // Vec3d(12, 0, 0)
 ```swift
 // Local position (relative to parent)
 transform.localPosition = Vec3d(5, 0, 0)
+
+// World position (converted to local space if there is a parent)
+transform.position = Vec3d(5, 0, 0)
 
 // Move by offset
 transform.localPosition += Vec3d(1, 0, 0)  // Move 1 unit right
@@ -78,7 +82,7 @@ transform.localPosition += Vec3d(1, 0, 0)  // Move 1 unit right
 let local = transform.localPosition
 
 // Get world position (includes parent transforms)
-let world = transform.worldPosition
+let world = transform.position
 ```
 
 ## Rotation
@@ -101,12 +105,15 @@ transform.localRotation = Quaternion.fromAxisAngle(
     angle: Float.pi / 4 // 45 degrees
 )
 
-// Look at a target
-let direction = target.transform.worldPosition - transform.worldPosition
-transform.localRotation = Quaternion.lookRotation(
+// Look at a target (world-space direction, so set the world rotation)
+let direction = target.transform.position - transform.position
+transform.rotation = Quaternion.lookRotation(
     forward: direction.normalized,
     up: Vec3d.up
 )
+
+// Or use the built-in helper
+transform.lookAt(target.transform.position)
 ```
 
 ### Reading Rotation
@@ -115,11 +122,11 @@ transform.localRotation = Quaternion.lookRotation(
 // Get quaternion
 let rotation = transform.localRotation
 
-// Get Euler angles
+// Get Euler angles (a named tuple, in radians)
 let euler = transform.localRotation.eulerAngles
-let pitch = euler.x
-let yaw = euler.y
-let roll = euler.z
+let pitch = euler.pitch
+let yaw = euler.yaw
+let roll = euler.roll
 ```
 
 ### Rotating Over Time
@@ -221,8 +228,10 @@ Local Matrix = Translation × Rotation × Scale
 ```swift
 // Create a hierarchy
 let arm = createGameObject(name: "Arm")
-let hand = createGameObject(name: "Hand", parent: arm)
-let finger = createGameObject(name: "Finger", parent: hand)
+let hand = createGameObject(name: "Hand")
+hand.setParent(arm)
+let finger = createGameObject(name: "Finger")
+finger.setParent(hand)
 
 // Position locally
 arm.transform.localPosition = Vec3d(0, 1, 0)     // Arm at Y=1
@@ -236,7 +245,7 @@ arm.transform.localRotation = Quaternion.fromAxisAngle(
 )
 
 // The finger's world position accounts for all parent transforms
-let fingerWorldPos = finger.transform.worldPosition
+let fingerWorldPos = finger.transform.position
 ```
 
 ```
@@ -257,9 +266,9 @@ F = Finger, H = Hand, A = Arm
 
 ```swift
 func lookAt(target: Vec3d) {
-    let direction = (target - transform.worldPosition).normalized
+    let direction = (target - transform.position).normalized
     if direction.length > 0.001 {
-        transform.localRotation = Quaternion.lookRotation(
+        transform.rotation = Quaternion.lookRotation(
             forward: direction,
             up: Vec3d.up
         )
@@ -271,12 +280,12 @@ func lookAt(target: Vec3d) {
 
 ```swift
 func moveToward(target: Vec3d, speed: Float, deltaTime: Float) {
-    let direction = target - transform.worldPosition
+    let direction = target - transform.position
     let distance = direction.length
     
     if distance > 0.01 {
         let moveAmount = min(speed * deltaTime, distance)
-        transform.localPosition += direction.normalized * moveAmount
+        transform.position += direction.normalized * moveAmount
     }
 }
 ```
@@ -285,10 +294,10 @@ func moveToward(target: Vec3d, speed: Float, deltaTime: Float) {
 
 ```swift
 func orbitAround(center: Vec3d, axis: Vec3d, speed: Float, deltaTime: Float) {
-    let offset = transform.worldPosition - center
+    let offset = transform.position - center
     let rotation = Quaternion.fromAxisAngle(axis: axis, angle: speed * deltaTime)
-    let newOffset = rotation.rotate(offset)
-    transform.localPosition = center + newOffset
+    let newOffset = rotation * offset
+    transform.position = center + newOffset
     
     // Optionally face the center
     lookAt(target: center)

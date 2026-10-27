@@ -91,7 +91,7 @@ Brightness = max(0, dot(normal, lightDirection)) × intensity
 
 ## AmbientLight
 
-Provides uniform base illumination - prevents completely black shadows.
+Provides uniform base illumination - prevents completely black shadows. Without an `AmbientLight` component, the renderer uses a default ambient intensity of `0.1` (`AmbientLight.defaultIntensity`) with white color.
 
 ### Setup
 
@@ -130,7 +130,7 @@ let color = AmbientLight.effectiveColor          // Returns .white if no compone
 ### Visual Effect
 
 ```
-Without Ambient Light:          With Ambient Light (0.3):
+No AmbientLight (default 0.1):  With Ambient Light (0.3):
 
          ┌────────────┐              ┌────────────┐
          │████████████│              │████████████│
@@ -139,14 +139,18 @@ Without Ambient Light:          With Ambient Light (0.3):
          │▒▒▒▒▒▒▒▒▒▒▒▒│              │▒▒▒▒▒▒▒▒▒▒▒▒│
          │▒▒▒▒▒▒▒▒▒▒▒▒│              │▒▒▒▒▒▒▒▒▒▒▒▒│
          │            │              │            │
-         │            │ ← Pure black │░░░░░░░░░░░░│ ← Still visible
+         │            │ ← Dim (0.1)  │░░░░░░░░░░░░│ ← Still visible
          │            │              │░░░░░░░░░░░░│
          └────────────┘              └────────────┘
 ```
 
 ## Lighting Calculation
 
-The `RenderPipeline` calculates lighting per-triangle:
+The `RenderPipeline` calculates lighting according to the material's `shadingModel`:
+
+- `.flat` (default): once per triangle, using the face normal
+- `.gouraud`: once per vertex, using the vertex normals; colors are interpolated across the triangle
+- `.unlit`: no lighting, the base color is used as-is
 
 ```
 Final Color = Base Color × (Ambient + Σ Directional)
@@ -161,7 +165,8 @@ Directional Term (per light):
 ### Code Equivalent
 
 ```swift
-var totalLight = ambientIntensity * ambientColor
+// Pseudocode (colors treated as 0-1 RGB vectors)
+var totalLight = AmbientLight.effectiveIntensity * AmbientLight.effectiveColor
 
 for light in DirectionalLight.all {
     let nDotL = max(0, normal.dot(light.direction))
@@ -303,7 +308,7 @@ public final class FlickerLight: Component {
 
 ## Best Practices
 
-1. **Always add AmbientLight** - Prevents pure black areas
+1. **Add an AmbientLight** - Controls the base illumination (otherwise a dim default of 0.1 is used)
 2. **Keep ambient low** - 0.1-0.3 is usually enough
 3. **Use colored lights sparingly** - Subtle tints work best
 4. **One main directional light** - Additional lights are fills

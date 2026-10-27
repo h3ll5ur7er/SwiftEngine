@@ -24,19 +24,17 @@ public final class BasicScene: GameObjectScene {
         // Ambient light for base illumination
         let ambient = createGameObject(name: "AmbientLight")
         let ambientLight = ambient.addComponent(AmbientLight.self)
-        ambientLight.color = Color(red: 64, green: 64, blue: 80)
+        ambientLight.color = Color(r: 64, g: 64, b: 80)
         ambientLight.intensity = 0.3
         
         // Main directional light (sun)
         let sun = createGameObject(name: "Sun")
         let sunLight = sun.addComponent(DirectionalLight.self)
-        sunLight.color = Color(red: 255, green: 250, blue: 240)
+        sunLight.color = Color(r: 255, g: 250, b: 240)
         sunLight.intensity = 0.8
-        sun.transform.localRotation = Quaternion.fromEuler(
-            pitch: -Float.pi / 3,  // 60° down
-            yaw: Float.pi / 4,     // 45° angle
-            roll: 0
-        )
+        // Direction points toward the light: 60° above the horizon, 45° around Y.
+        // (Rotating the light's transform has no effect; only `direction` is used.)
+        sunLight.direction = Vec3d(0.35, 0.87, 0.35)
     }
     
     private func setupPlayer() {
@@ -46,7 +44,7 @@ public final class BasicScene: GameObjectScene {
         
         playerController = player.addComponent(PlayerController.self)
         playerController?.moveSpeed = 5.0
-        playerController?.lookSpeed = 2.0
+        playerController?.lookSpeed = 0.002  // radians per pixel (used with enableMouseLook)
     }
     
     private func setupEnvironment() {
@@ -54,7 +52,7 @@ public final class BasicScene: GameObjectScene {
         let ground = createGameObject(name: "Ground", at: Vec3d(0, 0, 0))
         let groundRenderer = ground.addComponent(MeshRenderer.self)
         groundRenderer.mesh = PlaneMesh.shared
-        groundRenderer.material = Material.solid(Color(red: 80, green: 120, blue: 80))
+        groundRenderer.material = Material.solid(Color(r: 80, g: 120, b: 80))
         ground.transform.localScale = Vec3d(10, 1, 10)
         
         // Colored cubes arranged in a circle
@@ -74,7 +72,7 @@ public final class BasicScene: GameObjectScene {
             let renderer = cube.addComponent(MeshRenderer.self)
             renderer.mesh = CubeMesh.shared
             renderer.material = Material.solid(color)
-            renderer.material?.shadingModel = .flat
+            renderer.material.shadingModel = .flat
             
             // Add rotation
             let rotator = cube.addComponent(Rotator.self)
@@ -86,8 +84,8 @@ public final class BasicScene: GameObjectScene {
         let pillar = createGameObject(name: "Pillar", at: Vec3d(0, 1.5, 0))
         let pillarRenderer = pillar.addComponent(MeshRenderer.self)
         pillarRenderer.mesh = CubeMesh.shared
-        pillarRenderer.material = Material.solid(Color(red: 200, green: 200, blue: 200))
-        pillarRenderer.material?.shadingModel = .flat
+        pillarRenderer.material = Material.solid(Color(r: 200, g: 200, b: 200))
+        pillarRenderer.material.shadingModel = .flat
         pillar.transform.localScale = Vec3d(0.5, 3, 0.5)
     }
     
@@ -98,6 +96,10 @@ public final class BasicScene: GameObjectScene {
         // Call parent to update all GameObjects
         super.update(context: context, input: input)
     }
+    
+    // No render override: GameObjectScene's default render(context:) sets the
+    // camera's aspect ratio, clears to its backgroundColor, draws all
+    // MeshRenderers, then draws UI overlays.
 }
 ```
 
@@ -108,7 +110,7 @@ public final class BasicScene: GameObjectScene {
 ```
                     ☀️ Sun (DirectionalLight)
                    ╲
-                    ╲  60° down, 45° rotation
+                    ╲  60° above horizon, 45° around Y
                      ╲
                       ╲
     ═══════════════════●═══════════════════
@@ -125,7 +127,7 @@ public final class BasicScene: GameObjectScene {
 
 Two-light setup:
 - **Ambient Light**: Low-intensity uniform illumination
-- **Directional Light**: Main light source with direction
+- **Directional Light**: Main light source; set its `direction` (its transform's rotation is ignored)
 
 ### 2. Player Setup
 
@@ -189,7 +191,7 @@ Each cube gets:
 
 ```swift
 renderer.material = Material.solid(color)
-renderer.material?.shadingModel = .flat
+renderer.material.shadingModel = .flat
 ```
 
 ---
@@ -202,19 +204,15 @@ renderer.material?.shadingModel = .flat
 private func setupNightLighting() {
     let ambient = createGameObject(name: "Ambient")
     let ambientLight = ambient.addComponent(AmbientLight.self)
-    ambientLight.color = Color(red: 20, green: 20, blue: 40)
+    ambientLight.color = Color(r: 20, g: 20, b: 40)
     ambientLight.intensity = 0.2
     
     // Moonlight
     let moon = createGameObject(name: "Moon")
     let moonLight = moon.addComponent(DirectionalLight.self)
-    moonLight.color = Color(red: 200, green: 200, blue: 255)
+    moonLight.color = Color(r: 200, g: 200, b: 255)
     moonLight.intensity = 0.4
-    moon.transform.localRotation = Quaternion.fromEuler(
-        pitch: -Float.pi / 4,
-        yaw: 0,
-        roll: 0
-    )
+    moonLight.direction = Vec3d(0, 0.71, 0.71)  // 45° above the horizon
 }
 ```
 
@@ -224,18 +222,14 @@ private func setupNightLighting() {
 private func setupSunsetLighting() {
     let ambient = createGameObject(name: "Ambient")
     let ambientLight = ambient.addComponent(AmbientLight.self)
-    ambientLight.color = Color(red: 60, green: 40, blue: 50)
+    ambientLight.color = Color(r: 60, g: 40, b: 50)
     ambientLight.intensity = 0.3
     
     let sun = createGameObject(name: "Sun")
     let sunLight = sun.addComponent(DirectionalLight.self)
-    sunLight.color = Color(red: 255, green: 160, blue: 80)
+    sunLight.color = Color(r: 255, g: 160, b: 80)
     sunLight.intensity = 0.6
-    sun.transform.localRotation = Quaternion.fromEuler(
-        pitch: -Float.pi / 12,  // Low on horizon (15°)
-        yaw: Float.pi / 2,
-        roll: 0
-    )
+    sunLight.direction = Vec3d(0.97, 0.26, 0)  // Low on horizon (15°)
 }
 ```
 
@@ -275,25 +269,26 @@ private func createGrid(rows: Int, cols: Int, spacing: Float) {
 
 ```swift
 // Solar system style
+// (worldPositionStays: false keeps each `at:` position as the local offset)
 let sun = createGameObject(name: "Sun", at: .zero)
-sun.addComponent(MeshRenderer.self).color = .yellow
+sun.addComponent(MeshRenderer(mesh: CubeMesh.shared, color: .yellow))
 
 let earthOrbit = createGameObject(name: "EarthOrbit")
-earthOrbit.transform.parent = sun.transform
+earthOrbit.setParent(sun, worldPositionStays: false)
 earthOrbit.addComponent(Rotator.self).speed = 0.5
 
 let earth = createGameObject(name: "Earth", at: Vec3d(5, 0, 0))
-earth.transform.parent = earthOrbit.transform
-earth.addComponent(MeshRenderer.self).color = .blue
+earth.setParent(earthOrbit, worldPositionStays: false)
+earth.addComponent(MeshRenderer(mesh: CubeMesh.shared, color: .blue))
 earth.addComponent(Rotator.self).speed = 2.0
 
 let moonOrbit = createGameObject(name: "MoonOrbit")
-moonOrbit.transform.parent = earth.transform
+moonOrbit.setParent(earth, worldPositionStays: false)
 moonOrbit.addComponent(Rotator.self).speed = 1.5
 
 let moon = createGameObject(name: "Moon", at: Vec3d(1.5, 0, 0))
-moon.transform.parent = moonOrbit.transform
-moon.addComponent(MeshRenderer.self).color = .gray
+moon.setParent(moonOrbit, worldPositionStays: false)
+moon.addComponent(MeshRenderer(mesh: CubeMesh.shared, color: .gray))
 moon.transform.localScale = Vec3d(0.3, 0.3, 0.3)
 ```
 
@@ -318,14 +313,14 @@ public final class Spawner: Component {
         
         let obj = scene.createGameObject(
             name: "Spawned_\(Date().timeIntervalSince1970)",
-            at: transform.worldPosition
+            at: transform.position
         )
         let renderer = obj.addComponent(MeshRenderer.self)
         renderer.mesh = CubeMesh.shared
         renderer.color = Color(
-            red: UInt8.random(in: 100...255),
-            green: UInt8.random(in: 100...255),
-            blue: UInt8.random(in: 100...255)
+            r: UInt8.random(in: 100...255),
+            g: UInt8.random(in: 100...255),
+            b: UInt8.random(in: 100...255)
         )
     }
 }
@@ -347,7 +342,7 @@ public final class ObjectPool: Component {
             let obj = scene.createGameObject(name: "Pooled_\(i)")
             let renderer = obj.addComponent(MeshRenderer.self)
             renderer.mesh = CubeMesh.shared
-            obj.setActive(false)
+            obj.isActive = false
             pool.append(obj)
         }
     }
@@ -357,7 +352,7 @@ public final class ObjectPool: Component {
             let id = ObjectIdentifier(obj)
             if !activeObjects.contains(id) {
                 activeObjects.insert(id)
-                obj.setActive(true)
+                obj.isActive = true
                 return obj
             }
         }
@@ -368,7 +363,7 @@ public final class ObjectPool: Component {
         let id = ObjectIdentifier(obj)
         if activeObjects.contains(id) {
             activeObjects.remove(id)
-            obj.setActive(false)
+            obj.isActive = false
         }
     }
 }

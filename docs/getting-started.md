@@ -6,16 +6,18 @@ This guide will walk you through setting up your first GameEngine project.
 
 Before you begin, ensure you have:
 
-- **Swift 6.0+** installed
-- **Visual Studio 2022** Build Tools
-- **Windows 10/11**
+- **Swift 6.2+** installed (the package uses `swift-tools-version: 6.2`)
+- **Windows 10/11** with **Visual Studio 2022** Build Tools, or
+- **Linux** with X11 (run `scripts/setup-linux.sh` to install the toolchain and dependencies)
 
 ## Project Structure
 
 ```
 YourProject/
 ├── Package.swift
-├── build.ps1
+├── build.ps1                ← Windows build script
+├── scripts/
+│   └── setup-linux.sh       ← Linux setup script
 ├── Sources/
 │   ├── GameEngine/          ← Engine library (don't modify)
 │   └── Game/                ← Your game code
@@ -37,7 +39,7 @@ import GameEngine
 @main
 @MainActor
 struct MyGame {
-    static func main() {
+    static func main() async {
         // Configure the engine
         let config = EngineConfig(
             title: "My First Game",
@@ -50,7 +52,7 @@ struct MyGame {
         // Create and run the engine
         let engine = Engine(config: config)
         engine.loadScene(HelloWorldScene())
-        engine.run()
+        await engine.run()
     }
 }
 ```
@@ -116,32 +118,20 @@ public final class HelloWorldScene: GameObjectScene {
     public override func update(context: FrameContext, input: Input) {
         // Find player controller on first update
         if playerController == nil {
-            playerController = findComponentOfType(PlayerController.self)
+            playerController = findComponentsOfType(PlayerController.self).first
         }
         playerController?.setInput(input)
         
         super.update(context: context, input: input)
     }
-    
-    public override func render(context: RenderContext) {
-        // Clear screen
-        let bgColor = Camera.main?.backgroundColor ?? .black
-        context.renderer.clear(bgColor)
-        
-        guard let camera = Camera.main else { return }
-        
-        // Render all meshes
-        let meshRenderers = findComponentsOfType(MeshRenderer.self)
-        RenderPipeline.shared.render(
-            meshRenderers: meshRenderers,
-            camera: camera,
-            context: context
-        )
-    }
 }
 ```
 
+No `render(context:)` override is needed: `GameObjectScene`'s default `render` sets `Camera.main`'s aspect ratio from the window, clears to the camera's `backgroundColor`, renders all `MeshRenderer`s, then calls `renderUIOverlays(context:)`. If you override `render`, you take over all of that yourself.
+
 ### Step 3: Build and Run
+
+**Windows:**
 
 ```powershell
 # Build in release mode (faster)
@@ -149,6 +139,18 @@ public final class HelloWorldScene: GameObjectScene {
 
 # Run the game
 .\build.ps1 run-release
+```
+
+**Linux (X11):**
+
+```bash
+# One-time setup: Swift toolchain, X11 headers and other dependencies
+scripts/setup-linux.sh
+
+# Build, test, and run in release mode
+swift build
+swift test
+swift run -c release Game
 ```
 
 ## Controls
@@ -163,9 +165,9 @@ Default controls when using `PlayerController`:
 | `D` / `→` | Strafe right |
 | `E` | Move up |
 | `Q` | Move down |
-| `Left Click` | Capture mouse (enable FPS-style look) |
-| `Right Click` | Release mouse capture |
-| `ESC` | Exit the game |
+| `ESC` | Exit the game (handled by the engine) |
+
+`PlayerController` itself does not capture the mouse. The demo scenes in `Sources/Game/Scenes` capture it on left click and release it on right click in their own `update`, using `engine?.captureMouse()` / `engine?.releaseMouse()`.
 
 ### Mouse Capture
 

@@ -7,17 +7,22 @@ Learn how to create your own components to add custom behavior to GameObjects.
 Every component inherits from `Component` and can override lifecycle methods.
 
 ```
-┌────────────────────────────────────────────────────────────────────────┐
-│                        Component Lifecycle                              │
-│                                                                         │
-│    init() ──▶ onEnable() ──▶ start() ──▶ update() ──▶ onDisable()     │
-│       │           │            │            │              │            │
-│       │           │            │            │              │            │
-│   Constructor  When added   First frame   Every frame  When disabled   │
-│               or enabled    only once      loop         or destroyed   │
-│                                                                         │
-└────────────────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────────────┐
+│                           Component Lifecycle                            │
+│                                                                          │
+│  init() ─▶ awake() ─▶ onEnable() ─▶ start() ─▶ update() ─▶ onDestroy()   │
+│    │         │          │             │           │            │         │
+│    │         │          │             │           │            │         │
+│ Construct  When added  When added   Before the  Every frame  Removed or  │
+│            (once)      (if active)  first update             destroyed   │
+│                        or re-enabled  (once)                             │
+│                                                                          │
+│  onDisable(): when the GameObject is deactivated (isActive = false)      │
+│                                                                          │
+└──────────────────────────────────────────────────────────────────────────┘
 ```
+
+`onEnable()` / `onDisable()` are called when the GameObject's `isActive` changes, when a component's `isEnabled` changes while its GameObject is active, and (`onEnable()` only) when the component is added to an active GameObject. Destroying a GameObject or removing a component calls `onDestroy()`, not `onDisable()`.
 
 ## Basic Component Template
 
@@ -44,7 +49,12 @@ public final class MyComponent: Component {
     
     // MARK: - Lifecycle
     
-    /// Called when component is enabled
+    /// Called immediately when added to a GameObject
+    public override func awake() {
+        // One-time setup
+    }
+    
+    /// Called when added to an active GameObject, or when its GameObject is reactivated
     public override func onEnable() {
         // Setup when component becomes active
     }
@@ -59,9 +69,14 @@ public final class MyComponent: Component {
         // Per-frame logic
     }
     
-    /// Called when component is disabled
+    /// Called when the GameObject is deactivated
     public override func onDisable() {
         // Cleanup when component becomes inactive
+    }
+    
+    /// Called when the component is removed or its GameObject is destroyed
+    public override func onDestroy() {
+        // Final cleanup
     }
 }
 ```
@@ -286,15 +301,15 @@ public final class FollowTarget: Component {
     public override func update(deltaTime: Float) {
         guard let target = target else { return }
         
-        var targetPosition = target.worldPosition
-        var currentPosition = transform.worldPosition
+        var targetPosition = target.position
+        let currentPosition = transform.position
         
         if lockY {
             targetPosition.y = currentPosition.y
         }
         
         let direction = targetPosition - currentPosition
-        let distance = direction.magnitude
+        let distance = direction.length
         
         guard distance > stoppingDistance else {
             velocity = .zero
@@ -304,12 +319,12 @@ public final class FollowTarget: Component {
         let desiredVelocity = direction.normalized * speed
         velocity = velocity.lerp(to: desiredVelocity, t: 1.0 - smoothing)
         
-        transform.localPosition = currentPosition + velocity * deltaTime
+        transform.position = currentPosition + velocity * deltaTime
         
         // Face the target
         if distance > 0.01 {
             let lookDirection = direction.normalized
-            transform.localRotation = Quaternion.lookRotation(
+            transform.rotation = Quaternion.lookRotation(
                 forward: lookDirection,
                 up: .up
             )
@@ -325,7 +340,7 @@ let player = createGameObject(name: "Player")
 // ... setup player ...
 
 let follower = createGameObject(name: "Follower")
-follower.addComponent(MeshRenderer.self).color = .red
+follower.addComponent(MeshRenderer(mesh: CubeMesh.shared, color: .red))
 
 let follow = follower.addComponent(FollowTarget.self)
 follow.target = player.transform
@@ -378,8 +393,8 @@ public final class TriggerZone: Component {
         var currentObjects: Set<ObjectIdentifier> = []
         
         // Check all objects with matching tags
-        for obj in scene.findGameObjects(withTag: triggerTags.first ?? "Player") {
-            if isInside(obj.transform.worldPosition) {
+        for obj in triggerTags.flatMap({ scene.findWithTag($0) }) {
+            if isInside(obj.transform.position) {
                 let id = ObjectIdentifier(obj)
                 currentObjects.insert(id)
                 
@@ -403,7 +418,7 @@ public final class TriggerZone: Component {
     }
     
     private func isInside(_ position: Vec3d) -> Bool {
-        let center = transform.worldPosition
+        let center = transform.position
         let halfSize = size * 0.5
         
         return position.x >= center.x - halfSize.x &&
@@ -525,12 +540,18 @@ timer.onComplete = { [weak self] in
 ### 1. Use Required Initializer
 
 ```swift
-// ✅ Correct
+// ✅ Correct - addComponent(MyComponent.self) calls this
 public required init() {
     super.init()
 }
 
-// ❌ Wrong - won't compile with addComponent
+// ✅ Also fine - convenience initializers alongside the required one
+public convenience init(speed: Float) {
+    self.init()
+    self.speed = speed
+}
+
+// ❌ Wrong - a designated init without `required init()` won't compile
 public init(speed: Float) {
     self.speed = speed
     super.init()
@@ -540,11 +561,15 @@ public init(speed: Float) {
 ### 2. Configure After Adding
 
 ```swift
-// ✅ Correct
+// ✅ Add by type, then configure
 let comp = obj.addComponent(MyComponent.self)
 comp.speed = 5.0
 
-// ❌ Can't pass config to addComponent
+// ✅ Or pass an already configured instance
+obj.addComponent(MyComponent(speed: 5.0))
+obj.addComponent(RigidBody(mass: 2))
+
+// ❌ addComponent has no extra configuration parameters
 obj.addComponent(MyComponent.self, speed: 5.0)
 ```
 
@@ -559,7 +584,7 @@ public override func update(deltaTime: Float) {
 
 // ❌ Crashes if target is nil
 public override func update(deltaTime: Float) {
-    let pos = target!.worldPosition
+    let pos = target!.position
 }
 ```
 
@@ -574,12 +599,17 @@ public weak var other: Component?
 public var target: Transform?
 ```
 
-### 5. Clean Up in onDisable
+### 5. Clean Up in onDisable and onDestroy
 
 ```swift
 public override func onDisable() {
-    // Cancel any ongoing operations
+    // GameObject deactivated: cancel any ongoing operations
     velocity = .zero
+    target = nil
+}
+
+public override func onDestroy() {
+    // Removed or destroyed (onDisable is not called in this case)
     target = nil
 }
 ```

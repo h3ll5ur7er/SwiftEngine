@@ -20,11 +20,15 @@ Scenes contain your game world and manage GameObjects.
 │  ┌───────────────────────────┴───────────────────────────────────┐  │
 │  │                     GameObjectScene                            │  │
 │  │  ┌─────────────────────────────────────────────────────────┐  │  │
-│  │  │  + createGameObject(name:at:parent:)                    │  │  │
-│  │  │  + destroyGameObject(_:)                                │  │  │
-│  │  │  + findGameObject(named:)                               │  │  │
-│  │  │  + findComponentOfType(_:)                              │  │  │
+│  │  │  + createGameObject(name:)                              │  │  │
+│  │  │  + createGameObject(name:at:)                           │  │  │
+│  │  │  + addGameObject(_:)                                    │  │  │
+│  │  │  + destroy(_:)                                          │  │  │
+│  │  │  + find(name:) / findAll(name:)                         │  │  │
+│  │  │  + findWithTag(_:) / findFirstWithTag(_:)               │  │  │
+│  │  │  + findObjectsOfType(_:)                                │  │  │
 │  │  │  + findComponentsOfType(_:)                             │  │  │
+│  │  │  + render(context:)  (default rendering)                │  │  │
 │  │  └─────────────────────────────────────────────────────────┘  │  │
 │  └───────────────────────────────────────────────────────────────┘  │
 └─────────────────────────────────────────────────────────────────────┘
@@ -117,29 +121,27 @@ public final class GameLevel: GameObjectScene {
     
     public override func update(context: FrameContext, input: Input) {
         // Handle input before component updates
-        if let controller = findComponentOfType(PlayerController.self) {
+        if let controller = findComponentsOfType(PlayerController.self).first {
             controller.setInput(input)
         }
         
         super.update(context: context, input: input)  // Updates all components
     }
     
-    public override func render(context: RenderContext) {
-        // Clear and render
-        let bgColor = Camera.main?.backgroundColor ?? .black
-        context.renderer.clear(bgColor)
-        
-        guard let camera = Camera.main else { return }
-        
-        let meshRenderers = findComponentsOfType(MeshRenderer.self)
-        RenderPipeline.shared.render(
-            meshRenderers: meshRenderers,
-            camera: camera,
-            context: context
-        )
-    }
+    // No render(context:) override needed - see "Default Rendering" below
 }
 ```
+
+### Default Rendering
+
+`GameObjectScene` provides a default `render(context:)`. Each frame it:
+
+1. Sets `Camera.main`'s `aspectRatio` from the window size
+2. Clears the screen to the camera's `backgroundColor`
+3. Renders all `MeshRenderer`s from `Camera.main`
+4. Calls `renderUIOverlays(context:)`
+
+A scene that only builds objects in `onLoad(engine:)` (calling `super.onLoad(engine: engine)`) draws without overriding `render`. If you override `render`, you take over all of these steps yourself (or call `super.render(context: context)` and draw on top).
 
 ## Scene Lifecycle
 
@@ -182,7 +184,7 @@ stateDiagram-v2
 // In your entry point
 let engine = Engine(config: config)
 engine.loadScene(MainMenuScene())
-engine.run()
+await engine.run()  // inside `static func main() async`
 
 // Switch scenes at runtime (e.g., from a component)
 // Note: You need a reference to the engine
@@ -201,24 +203,31 @@ public final class LevelComplete: Component {
 
 ```swift
 // Find by name (first match)
-let player = findGameObject(named: "Player")
+let player = find(name: "Player")
 
 // Find all with name
-let enemies = findGameObjects(named: "Enemy")
+let enemies = findAll(name: "Enemy")
 
 // Find by tag
-let collectibles = findGameObjectsWithTag("collectible")
+let collectibles = findWithTag("collectible")
+let boss = findFirstWithTag("boss")
+
+// Remove a GameObject (deferred until the end of the frame)
+if let player { destroy(player) }
 ```
 
 ### Finding Components
 
 ```swift
-// Find single component
-let camera = findComponentOfType(Camera.self)
+// Find a single component (first match)
+let camera = findComponentsOfType(Camera.self).first
 
 // Find all components
 let allRenderers = findComponentsOfType(MeshRenderer.self)
 let allLights = findComponentsOfType(DirectionalLight.self)
+
+// Find all GameObjects that have a component
+let renderedObjects = findObjectsOfType(MeshRenderer.self)
 ```
 
 ## GameObjectScene Properties
@@ -233,8 +242,11 @@ let all = allGameObjects
 // Reference to engine
 let engine = self.engine
 
-// Fixed timestep for physics
-fixedDeltaTime = 1.0 / 50.0  // 50Hz physics
+// Fixed timestep for Component.fixedUpdate (default 1/60)
+fixedDeltaTime = 1.0 / 50.0  // call fixedUpdate at 50Hz
+
+// The physics simulation uses its own timestep:
+// PhysicsSystem.shared.settings.fixedDeltaTime
 ```
 
 ## Scene Patterns
@@ -256,7 +268,7 @@ public override func render(context: RenderContext) {
     }
     
     // Minimap camera (corner)
-    if let minimapCam = findGameObject(named: "MinimapCamera")?
+    if let minimapCam = find(name: "MinimapCamera")?
         .getComponent(Camera.self) {
         // Render to a viewport region
         // (Would need viewport support in renderer)
@@ -272,8 +284,8 @@ public final class GameLevel: GameObjectScene {
     private var isPaused = false
     
     public override func update(context: FrameContext, input: Input) {
-        // Toggle pause
-        if input.isKeyPressed(.escape) {
+        // Toggle pause (Escape is reserved: the engine stops on it)
+        if input.isKeyPressed(.p) {
             isPaused.toggle()
         }
         
@@ -284,8 +296,8 @@ public final class GameLevel: GameObjectScene {
     }
     
     public override func render(context: RenderContext) {
-        // Always render scene
-        renderScene(context: context)
+        // Always render scene (default rendering)
+        super.render(context: context)
         
         // Overlay pause menu
         if isPaused {
