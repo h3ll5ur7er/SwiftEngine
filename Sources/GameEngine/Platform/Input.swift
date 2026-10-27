@@ -1,12 +1,16 @@
 /// Handles keyboard and mouse input state
 @MainActor
 public final class Input {
-    // Current frame state
+    // Current state
     private var currentKeyStates: [Key: Bool] = [:]
-    private var previousKeyStates: [Key: Bool] = [:]
-    
     private var currentMouseStates: [MouseButton: Bool] = [:]
-    private var previousMouseStates: [MouseButton: Bool] = [:]
+    
+    // Transitions since the start of the frame (kept separately so a press and
+    // release within one frame still reports both)
+    private var keysPressedThisFrame: Set<Key> = []
+    private var keysReleasedThisFrame: Set<Key> = []
+    private var buttonsPressedThisFrame: Set<MouseButton> = []
+    private var buttonsReleasedThisFrame: Set<MouseButton> = []
     
     private(set) var mouseX: Int32 = 0
     private(set) var mouseY: Int32 = 0
@@ -23,10 +27,12 @@ public final class Input {
     
     // MARK: - Frame Update
     
-    /// Call at the start of each frame to update previous states
+    /// Call at the start of each frame, before processing events
     func beginFrame() {
-        previousKeyStates = currentKeyStates
-        previousMouseStates = currentMouseStates
+        keysPressedThisFrame.removeAll(keepingCapacity: true)
+        keysReleasedThisFrame.removeAll(keepingCapacity: true)
+        buttonsPressedThisFrame.removeAll(keepingCapacity: true)
+        buttonsReleasedThisFrame.removeAll(keepingCapacity: true)
         
         // Reset mouse delta at frame start
         mouseDeltaX = 0
@@ -47,16 +53,12 @@ public final class Input {
     
     /// Returns true only on the frame the key was first pressed
     public func isKeyPressed(_ key: Key) -> Bool {
-        let current = currentKeyStates[key] ?? false
-        let previous = previousKeyStates[key] ?? false
-        return current && !previous
+        keysPressedThisFrame.contains(key)
     }
     
     /// Returns true only on the frame the key was released
     public func isKeyReleased(_ key: Key) -> Bool {
-        let current = currentKeyStates[key] ?? false
-        let previous = previousKeyStates[key] ?? false
-        return !current && previous
+        keysReleasedThisFrame.contains(key)
     }
     
     // MARK: - Mouse Queries
@@ -83,25 +85,33 @@ public final class Input {
     
     /// Returns true only on the frame the mouse button was first pressed
     public func isMouseButtonPressed(_ button: MouseButton) -> Bool {
-        let current = currentMouseStates[button] ?? false
-        let previous = previousMouseStates[button] ?? false
-        return current && !previous
+        buttonsPressedThisFrame.contains(button)
     }
     
     /// Returns true only on the frame the mouse button was released
     public func isMouseButtonReleased(_ button: MouseButton) -> Bool {
-        let current = currentMouseStates[button] ?? false
-        let previous = previousMouseStates[button] ?? false
-        return !current && previous
+        buttonsReleasedThisFrame.contains(button)
     }
     
     // MARK: - Internal State Updates (called from Window message handling)
     
     func setKeyState(_ key: Key, down: Bool) {
+        let wasDown = currentKeyStates[key] ?? false
+        if down && !wasDown {
+            keysPressedThisFrame.insert(key)
+        } else if !down && wasDown {
+            keysReleasedThisFrame.insert(key)
+        }
         currentKeyStates[key] = down
     }
     
     func setMouseButtonState(_ button: MouseButton, down: Bool) {
+        let wasDown = currentMouseStates[button] ?? false
+        if down && !wasDown {
+            buttonsPressedThisFrame.insert(button)
+        } else if !down && wasDown {
+            buttonsReleasedThisFrame.insert(button)
+        }
         currentMouseStates[button] = down
     }
     

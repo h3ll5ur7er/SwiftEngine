@@ -118,10 +118,11 @@ public final class Backbuffer {
         
         guard let display = display, let visual = visual else { return }
         
-        // Allocate pixel data (4 bytes per pixel for BGRA)
+        // Allocate pixel data (4 bytes per pixel for BGRA) with malloc,
+        // because XDestroyImage releases it with free()
         let dataSize = Int(self.width * self.height) * 4
-        let data = UnsafeMutablePointer<CChar>.allocate(capacity: dataSize)
-        data.initialize(repeating: 0, count: dataSize)
+        guard let raw = calloc(dataSize, 1) else { return }
+        let data = raw.assumingMemoryBound(to: CChar.self)
         
         // Create XImage
         let ZPixmap: Int32 = 2  // X11 ZPixmap format constant
@@ -141,7 +142,7 @@ public final class Backbuffer {
         if ximage != nil {
             pixelData = UnsafeMutableRawPointer(data).assumingMemoryBound(to: UInt32.self)
         } else {
-            data.deallocate()
+            free(data)
         }
     }
     

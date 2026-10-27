@@ -21,7 +21,8 @@ public final class Engine {
     private var isRunning: Bool = false
     private var frameCount: UInt64 = 0
     private var totalTime: Double = 0
-    private var lastFrameTime: UInt64 = 0
+    private let clock = ContinuousClock()
+    private var lastFrameInstant: ContinuousClock.Instant?
     private var fpsUpdateTime: UInt64 = 0
     private var fpsFrameCount: Int = 0
     private var currentFps: Double = 0
@@ -70,17 +71,18 @@ public final class Engine {
         }
         
         isRunning = true
-        lastFrameTime = timer.currentTimeMillis()
-        fpsUpdateTime = lastFrameTime
+        lastFrameInstant = clock.now
+        fpsUpdateTime = timer.currentTimeMillis()
         
         // Main loop
         while isRunning && !window.shouldClose {
-            // Calculate delta time
-            let now = timer.currentTimeMillis()
-            let deltaMs = now - lastFrameTime
-            let deltaTime = Double(deltaMs) / 1000.0
-            lastFrameTime = now
+            // Calculate delta time (sub-millisecond precision)
+            let frameInstant = clock.now
+            let deltaTime = lastFrameInstant.map { (frameInstant - $0).seconds } ?? 0
+            lastFrameInstant = frameInstant
             totalTime += deltaTime
+            
+            let now = timer.currentTimeMillis()
             
             // Update FPS counter
             fpsFrameCount += 1
@@ -189,5 +191,13 @@ public final class Engine {
     /// Toggle mouse capture state
     public func toggleMouseCapture() {
         window.toggleMouseCapture()
+    }
+}
+
+extension Duration {
+    /// The duration in seconds
+    var seconds: Double {
+        let (seconds, attoseconds) = components
+        return Double(seconds) + Double(attoseconds) * 1e-18
     }
 }

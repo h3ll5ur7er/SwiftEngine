@@ -48,11 +48,19 @@ public struct KeyCodeTranslator: Sendable {
     
     /// Translate an X11 keysym to VirtualKey
     public func translate(_ keysym: Int32) -> VirtualKey? {
-        // Handle uppercase letters by converting to lowercase
         let normalized: Int32
-        if keysym >= 0x41 && keysym <= 0x5A {
+        switch keysym {
+        case 0x41...0x5A:
             normalized = keysym + 0x20  // Convert A-Z to a-z
-        } else {
+        case 0xFFE2:
+            normalized = VirtualKey.shift.rawValue    // XK_Shift_R
+        case 0xFFE4:
+            normalized = VirtualKey.control.rawValue  // XK_Control_R
+        case 0xFFEA, 0xFE03:
+            normalized = VirtualKey.alt.rawValue      // XK_Alt_R, XK_ISO_Level3_Shift (AltGr)
+        case 0xFF8D:
+            normalized = VirtualKey.enter.rawValue    // XK_KP_Enter
+        default:
             normalized = keysym
         }
         return VirtualKey(rawValue: normalized)

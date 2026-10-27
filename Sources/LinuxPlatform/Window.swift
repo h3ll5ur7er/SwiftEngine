@@ -471,7 +471,6 @@ public final class Window {
     
     /// Capture the mouse cursor
     public func captureMouse() {
-        print("start capturing mouse")
         guard let display = display, !isMouseCaptured else { return }
         isMouseCaptured = true
         
@@ -493,7 +492,6 @@ public final class Window {
             window, invisibleCursor, 0  // Use invisible cursor in grab, CurrentTime
         )
         centerCursor()
-        print("end capturing mouse")
         _ = XFlush(display)
     }
     

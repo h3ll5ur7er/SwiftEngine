@@ -104,6 +104,11 @@ public enum PlatformInterface {
     
     // MARK: - Utilities
     
+    #if os(Windows) || os(Linux)
+    /// Shared translator (handles platform aliases like right-hand modifiers)
+    private static let keyCodeTranslator = PlatformKeyCodeTranslator()
+    #endif
+    
     /// Exit the process immediately
     public static func exitProcess(_ code: Int32) -> Never {
         #if os(Windows)
@@ -118,7 +123,7 @@ public enum PlatformInterface {
     /// Translate a platform virtual key code to engine Key
     public static func translateKeyCode(_ vk: Int32) -> Key? {
         #if os(Windows) || os(Linux)
-        guard let platformKey = PlatformVirtualKey(rawValue: vk) else { return nil }
+        guard let platformKey = keyCodeTranslator.translate(vk) else { return nil }
         return keyFromPlatformKey(platformKey)
         #else
         return nil
