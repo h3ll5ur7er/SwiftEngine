@@ -109,9 +109,10 @@ public final class PlaneMesh: Mesh, @unchecked Sendable {
             Vertex(position: Vec3d(-halfWidth, 0, halfDepth), normal: normal, uv: Vec2d(0, 1)),
         ]
         
+        // Counter-clockwise when seen from above, matching the +Y normal
         self.indices = [
-            0, 1, 2,  // First triangle
-            0, 2, 3   // Second triangle
+            0, 2, 1,  // First triangle
+            0, 3, 2   // Second triangle
         ]
         
         self.bounds = Bounds(center: .zero, size: Vec3d(width, 0, depth))
