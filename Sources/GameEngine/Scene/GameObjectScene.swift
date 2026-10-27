@@ -45,11 +45,16 @@ open class GameObjectScene: Scene {
         // Destroy all GameObjects
         for gameObject in allGameObjects {
             gameObject.internalDestroy()
+            gameObject.scene = nil
         }
         rootGameObjects.removeAll()
         allGameObjects.removeAll()
         gameObjectsByName.removeAll()
         gameObjectsByTag.removeAll()
+        pendingStart.removeAll()
+        pendingDestroy.removeAll()
+        fixedUpdateAccumulator = 0
+        isInitialized = false
     }
     
     open func onActivate(engine: Engine) {}
@@ -58,6 +63,11 @@ open class GameObjectScene: Scene {
     
     open func update(context: FrameContext, input: Input) {
         let deltaTime = Float(context.deltaTime)
+        
+        // First frame: start everything created during setup
+        if !isInitialized {
+            initializeScene()
+        }
         
         // Start pending GameObjects
         for gameObject in pendingStart {
@@ -85,7 +95,8 @@ open class GameObjectScene: Scene {
         }
         
         // Destroy pending GameObjects
-        for gameObject in pendingDestroy {
+        // (skips objects already destroyed along with a destroyed parent)
+        for gameObject in pendingDestroy where gameObject.scene === self {
             internalDestroyGameObject(gameObject)
         }
         pendingDestroy.removeAll()
@@ -138,10 +149,8 @@ open class GameObjectScene: Scene {
     /// Immediately remove a GameObject from the scene
     private func internalDestroyGameObject(_ gameObject: GameObject) {
         // Destroy children first
-        for child in gameObject.transform.children {
-            if let childGO = findGameObject(with: child) {
-                internalDestroyGameObject(childGO)
-            }
+        for child in gameObject.children where child.scene === self {
+            internalDestroyGameObject(child)
         }
         
         gameObject.internalDestroy()
@@ -151,6 +160,7 @@ open class GameObjectScene: Scene {
             rootGameObjects.remove(at: index)
         }
         
+        gameObject.transform.removeFromParent()
         gameObject.scene = nil
     }
     
@@ -220,14 +230,9 @@ open class GameObjectScene: Scene {
         }
     }
     
-    /// Find the GameObject associated with a transform
-    private func findGameObject(with transform: Transform) -> GameObject? {
-        allGameObjects.first { $0.transform === transform }
-    }
-    
     // MARK: - Scene Initialization
     
-    /// Called after onLoad to start all initial GameObjects
+    /// Called on the first update to start all GameObjects created during setup
     internal func initializeScene() {
         isInitialized = true
         for gameObject in allGameObjects {

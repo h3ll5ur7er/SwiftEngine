@@ -54,18 +54,21 @@ public final class GameObject {
         self.id = UUID()
         self.name = name
         self.transform = Transform()
+        transform.gameObject = self
     }
     
     public init(name: String, position: Vec3d) {
         self.id = UUID()
         self.name = name
         self.transform = Transform(position: position)
+        transform.gameObject = self
     }
     
     public init(name: String, position: Vec3d, rotation: Quaternion) {
         self.id = UUID()
         self.name = name
         self.transform = Transform(position: position, rotation: rotation)
+        transform.gameObject = self
     }
     
     // MARK: - Component Management
@@ -134,9 +137,12 @@ public final class GameObject {
     
     /// Parent GameObject (derived from transform hierarchy)
     public var parent: GameObject? {
-        // Note: This requires the scene to track transform-to-gameobject mapping
-        // For now, we use transform hierarchy directly
-        nil // Will be implemented with scene tracking
+        transform.parent?.gameObject
+    }
+    
+    /// Child GameObjects (derived from transform hierarchy)
+    public var children: [GameObject] {
+        transform.children.compactMap { $0.gameObject }
     }
     
     /// Set the parent of this GameObject

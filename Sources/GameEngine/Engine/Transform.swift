@@ -25,6 +25,9 @@ public final class Transform: @unchecked Sendable {
     /// Child transforms
     public private(set) var children: [Transform] = []
     
+    /// The GameObject that owns this transform (nil for standalone transforms)
+    public internal(set) weak var gameObject: GameObject?
+    
     // Cached matrices for performance
     private var _localMatrix: Mat4d?
     private var _worldMatrix: Mat4d?
