@@ -230,6 +230,18 @@ open class GameObjectScene: Scene {
         }
     }
     
+    /// Keep the name lookup current when a GameObject is renamed
+    internal func gameObjectRenamed(_ gameObject: GameObject, from oldName: String) {
+        gameObjectsByName[oldName]?.removeAll { $0 === gameObject }
+        gameObjectsByName[gameObject.name, default: []].append(gameObject)
+    }
+    
+    /// Keep the tag lookup current when a GameObject's tag changes
+    internal func gameObjectRetagged(_ gameObject: GameObject, from oldTag: String) {
+        gameObjectsByTag[oldTag]?.removeAll { $0 === gameObject }
+        gameObjectsByTag[gameObject.tag, default: []].append(gameObject)
+    }
+    
     // MARK: - Scene Initialization
     
     /// Called on the first update to start all GameObjects created during setup

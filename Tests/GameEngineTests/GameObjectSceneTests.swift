@@ -85,6 +85,21 @@ struct GameObjectSceneTests {
         #expect(recorder.calls.contains("start"))
     }
     
+    // MARK: - Lookup
+    
+    @Test("Tags and names set after creation are found by lookups")
+    func lookupsFollowRenames() {
+        let scene = GameObjectScene()
+        let go = scene.createGameObject(name: "Old")
+        go.tag = "Enemy"
+        go.name = "New"
+        
+        #expect(scene.findWithTag("Enemy").map(\.name) == ["New"])
+        #expect(scene.findWithTag("Untagged").isEmpty)
+        #expect(scene.find(name: "New") === go)
+        #expect(scene.find(name: "Old") == nil)
+    }
+    
     // MARK: - Hierarchy
     
     @Test("GameObject.parent reflects setParent")

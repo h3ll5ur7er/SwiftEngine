@@ -63,9 +63,9 @@ public final class ActorDemoScene: GameObjectScene {
         // Create initial physics cubes
         spawnPhysicsCubes(count: 5)
         
-        // Register a custom game logic handler for a "Spinner" behavior
+        // Register a custom game logic handler for the Spinner component
         Task {
-            await GameLogicActor.shared.registerHandler(for: "SpinnerTag") { snapshot, deltaTime in
+            await GameLogicActor.shared.registerHandler(for: "Spinner") { snapshot, deltaTime in
                 // Rotate based on deltaTime (demonstrates async game logic)
                 let currentRotation = snapshot.rotation
                 let spinRotation = Quaternion.fromAxisAngle(axis: .up, angle: deltaTime * 2.0)
@@ -82,6 +82,7 @@ public final class ActorDemoScene: GameObjectScene {
             
             let spinner = createGameObject(name: "Spinner\(i)", at: Vec3d(x, 1, z))
             spinner.tag = "SpinnerTag"
+            spinner.addComponent(Spinner.self)
             
             let material = Material.solid([Color.red, Color.green, Color.blue, Color.yellow][i])
             material.shadingModel = .flat
@@ -296,3 +297,7 @@ public final class ActorDemoScene: GameObjectScene {
         renderUIOverlays(context: context)
     }
 }
+
+/// Marker component: objects with it are rotated by the GameLogicActor handler registered in ActorDemoScene
+@MainActor
+final class Spinner: Component {}

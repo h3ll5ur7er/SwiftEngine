@@ -7,7 +7,11 @@ public final class GameObject {
     public let id: UUID
     
     /// Name of this GameObject
-    public var name: String
+    public var name: String {
+        didSet {
+            if name != oldValue { scene?.gameObjectRenamed(self, from: oldValue) }
+        }
+    }
     
     /// Whether this GameObject is active
     public var isActive: Bool = true {
@@ -34,7 +38,11 @@ public final class GameObject {
     public let transform: Transform
     
     /// Tag for categorization
-    public var tag: String = "Untagged"
+    public var tag: String = "Untagged" {
+        didSet {
+            if tag != oldValue { scene?.gameObjectRetagged(self, from: oldValue) }
+        }
+    }
     
     /// Layer for rendering and physics
     public var layer: Int = 0

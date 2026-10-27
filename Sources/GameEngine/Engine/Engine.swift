@@ -123,9 +123,9 @@ public final class Engine {
             // Update scene
             currentScene?.update(context: frameContext, input: input)
             
-            // Update physics synchronously (async version caused window issues)
-            // TODO: Investigate async physics with proper message pump integration
-            PhysicsSystem.shared.update(deltaTime: Float(deltaTime))
+            // Physics and off-main-actor game logic
+            let gameObjects = (currentScene as? GameObjectScene)?.allGameObjects ?? []
+            await ActorCoordinator.shared.update(deltaTime: Float(deltaTime), gameObjects: gameObjects)
             
             // Render
             Primitives.currentRenderer = renderer
@@ -137,6 +137,10 @@ public final class Engine {
             window.present()
             
             frameCount += 1
+            
+            // Let other main-actor work run (Task {} bodies, async asset load completions);
+            // without a suspension point here the loop would starve them indefinitely
+            await Task.yield()
             
             // Frame rate limiting
             if let targetFps = config.targetFps, targetFps > 0 {

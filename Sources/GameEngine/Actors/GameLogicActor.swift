@@ -115,6 +115,11 @@ public actor GameLogicActor {
         customTasks.removeValue(forKey: name)
     }
     
+    /// Whether any handlers or tasks are registered
+    public var hasWork: Bool {
+        !updateHandlers.isEmpty || !customTasks.isEmpty
+    }
+    
     // MARK: - Processing
     
     /// Process game logic for a batch of game objects

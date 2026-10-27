@@ -11,17 +11,11 @@ public final class ActorCoordinator {
     /// Shared timer for performance measurement
     private let timer = sharedTimer
     
-    /// Whether async physics is enabled
-    public var asyncPhysicsEnabled: Bool = true
+    /// Run physics on PhysicsActor instead of inline on the main actor
+    public var asyncPhysicsEnabled: Bool = false
     
-    /// Whether async game logic is enabled  
+    /// Run GameLogicActor handlers and tasks each frame
     public var asyncGameLogicEnabled: Bool = true
-    
-    /// Latest physics result (for interpolation)
-    private var latestPhysicsResult: PhysicsStepResult?
-    
-    /// Latest game logic result
-    private var latestGameLogicResult: GameLogicResult?
     
     /// Performance metrics
     public private(set) var physicsTime: Double = 0
@@ -32,138 +26,52 @@ public final class ActorCoordinator {
     
     // MARK: - Frame Update
     
-    /// Called each frame to coordinate actor updates
-    /// This runs physics and game logic concurrently, then applies results
+    /// Called by the engine each frame after the scene update.
+    /// Steps physics (inline or on PhysicsActor), then runs GameLogicActor handlers
+    /// and applies their transform updates.
     public func update(
         deltaTime: Float,
         gameObjects: [GameObject]
     ) async {
         let frameStart = timer.currentTimeMillis()
         
-        // Create snapshots for concurrent processing (on MainActor)
-        let snapshots = gameObjects.map { go in
-            GameObjectSnapshot(
-                id: go.id,
-                name: go.name,
-                isActive: go.isActive,
-                position: go.transform.position,
-                rotation: go.transform.rotation,
-                scale: go.transform.lossyScale,
-                components: go.components.map { comp in
-                    ComponentUpdateData(
-                        gameObjectId: go.id,
-                        componentTypeName: comp.typeName,
-                        isEnabled: comp.isEnabled
-                    )
-                }
-            )
-        }
-        
-        // Create physics input if async physics is enabled
-        let physicsInput: PhysicsFrameInput?
         if asyncPhysicsEnabled {
-            // Gather body states from RigidBody components
-            var bodies: [GameUUID: PhysicsBodyState] = [:]
-            var colliders: [ColliderSnapshot] = []
-            
-            for go in gameObjects {
-                if let rb = go.getComponent(RigidBody.self) {
-                    let state = PhysicsBodyState(
-                        id: go.id,
-                        position: go.transform.position,
-                        velocity: rb.velocity,
-                        rotation: go.transform.rotation,
-                        angularVelocity: rb.angularVelocity,
-                        mass: rb.mass,
-                        isKinematic: rb.isKinematic,
-                        angularDrag: rb.angularDrag,
-                        maxVelocity: rb.maxVelocity,
-                        maxAngularVelocity: rb.maxAngularVelocity,
-                        accumulatedForce: rb.accumulatedForce,
-                        accumulatedTorque: rb.accumulatedTorque
-                    )
-                    bodies[go.id] = state
-                }
-                
-                // Gather colliders
-                for collider in [go.getComponent(BoxCollider.self) as Collider?, 
-                                go.getComponent(SphereCollider.self) as Collider?,
-                                go.getComponent(PlaneCollider.self) as Collider?].compactMap({ $0 }) {
-                    if collider.isEnabled {
-                        let colliderType: ColliderSnapshot.ColliderType
-                        if let box = collider as? BoxCollider {
-                            colliderType = .box(halfExtents: box.halfExtents)
-                        } else if let sphere = collider as? SphereCollider {
-                            colliderType = .sphere(radius: sphere.radius)
-                        } else if let plane = collider as? PlaneCollider {
-                            let worldNormal = plane.worldNormal
-                            let worldPoint = plane.worldCenter
-                            let offset = worldNormal.x * worldPoint.x + worldNormal.y * worldPoint.y + worldNormal.z * worldPoint.z
-                            colliderType = .plane(normal: worldNormal, offset: offset)
-                        } else {
-                            continue
-                        }
-                        
-                        colliders.append(ColliderSnapshot(
-                            bodyId: go.id,
-                            type: colliderType,
-                            worldCenter: collider.worldCenter,
-                            worldRotation: go.transform.rotation,
-                            isTrigger: collider.isTrigger,
-                            layer: collider.layer,
-                            material: collider.material,
-                            boundingSphereRadius: collider.boundingSphereRadius
-                        ))
+            await PhysicsSystem.shared.updateAsync(deltaTime: deltaTime)
+        } else {
+            PhysicsSystem.shared.update(deltaTime: deltaTime)
+        }
+        physicsTime = PhysicsSystem.shared.waitTimeMs / 1000.0
+        
+        if asyncGameLogicEnabled, await GameLogicActor.shared.hasWork {
+            let snapshots = gameObjects.map { go in
+                GameObjectSnapshot(
+                    id: go.id,
+                    name: go.name,
+                    isActive: go.isActive,
+                    position: go.transform.position,
+                    rotation: go.transform.rotation,
+                    scale: go.transform.lossyScale,
+                    components: go.components.map { comp in
+                        ComponentUpdateData(
+                            gameObjectId: go.id,
+                            componentTypeName: comp.typeName,
+                            isEnabled: comp.isEnabled
+                        )
                     }
-                }
+                )
             }
             
-            physicsInput = PhysicsFrameInput(bodies: bodies, colliders: colliders, deltaTime: deltaTime)
+            let result = await GameLogicActor.shared.processGameObjects(snapshots, deltaTime: deltaTime)
+            gameLogicTime = result.processingTime
+            applyGameLogicResults(result, to: gameObjects)
         } else {
-            physicsInput = nil
+            gameLogicTime = 0
         }
-        
-        // Run physics and game logic concurrently
-        async let physicsTask: PhysicsStepResult? = physicsInput != nil 
-            ? await PhysicsActor.shared.simulate(input: physicsInput!) 
-            : nil
-            
-        async let gameLogicTask: GameLogicResult = asyncGameLogicEnabled
-            ? GameLogicActor.shared.processGameObjects(snapshots, deltaTime: deltaTime)
-            : GameLogicResult(processedCount: 0, processingTime: 0, transformUpdates: [:])
-        
-        // Await both results
-        let (physicsResult, gameLogicResult) = await (physicsTask, gameLogicTask)
-        
-        // Store results
-        latestPhysicsResult = physicsResult
-        latestGameLogicResult = gameLogicResult
-        
-        // Apply physics results to transforms (on MainActor)
-        if let physics = physicsResult {
-            physicsTime = Double(physics.simulatedTime)
-            applyPhysicsResults(physics, to: gameObjects)
-        }
-        
-        // Apply game logic results to transforms (on MainActor)
-        gameLogicTime = gameLogicResult.processingTime
-        applyGameLogicResults(gameLogicResult, to: gameObjects)
         
         lastFrameActorTime = Double(timer.currentTimeMillis() - frameStart) / 1000.0
     }
     
     // MARK: - Result Application
-    
-    private func applyPhysicsResults(_ result: PhysicsStepResult, to gameObjects: [GameObject]) {
-        let lookup = Dictionary(uniqueKeysWithValues: gameObjects.map { ($0.id, $0) })
-        
-        for (id, bodyState) in result.updatedBodies {
-            if let gameObject = lookup[id] {
-                gameObject.transform.position = bodyState.position
-                gameObject.transform.rotation = bodyState.rotation
-            }
-        }
-    }
     
     private func applyGameLogicResults(_ result: GameLogicResult, to gameObjects: [GameObject]) {
         let lookup = Dictionary(uniqueKeysWithValues: gameObjects.map { ($0.id, $0) })
@@ -220,7 +128,7 @@ public final class ActorCoordinator {
         let cacheStats = await AssetLoadingActor.shared.getCacheStats()
         
         return ActorPerformanceStats(
-            physicsBodyCount: latestPhysicsResult?.updatedBodies.count ?? 0,
+            physicsBodyCount: PhysicsSystem.shared.bodyCount,
             totalPhysicsTime: physicsTime,
             totalGameLogicTime: logicTime,
             avgPhysicsTimePerStep: physicsUpdates > 0 ? physicsTime / Double(physicsUpdates) : 0,
