@@ -39,7 +39,7 @@ public final class UIOverlay: Component {
     public var anchor: Anchor?
     
     /// Optional fixed size for the overlay
-    /// nil means fill available space based on anchor
+    /// nil means: full screen without an anchor, or fit the content when anchored
     public var size: Size?
     
     /// Padding applied to the overlay content
@@ -53,6 +53,9 @@ public final class UIOverlay: Component {
     /// Cached screen dimensions
     private var screenWidth: Float = 0
     private var screenHeight: Float = 0
+    
+    /// Bounds used for the most recent render (input uses the same area)
+    internal private(set) var lastBounds: UIRect?
     
     /// Whether content needs rebuild
     private var needsRebuild: Bool = false
@@ -164,11 +167,13 @@ public final class UIOverlay: Component {
         screenHeight = Float(context.height)
         
         // Calculate overlay bounds based on anchor and size
-        let _ = calculateBounds()
+        let fitted = (size == nil && anchor != nil)
+            ? uiRoot.fittingSize(maxWidth: screenWidth, maxHeight: screenHeight, renderer: context.renderer)
+            : nil
+        let bounds = calculateBounds(fittedSize: fitted)
+        lastBounds = bounds
         
-        // Create a render context that respects the bounds
-        // For now, we render in the calculated bounds
-        uiRoot.render(context)
+        uiRoot.render(context, in: bounds)
     }
     
     /// Handle input for this overlay (called by UIOverlayManager)
@@ -179,7 +184,7 @@ public final class UIOverlay: Component {
         self.screenWidth = screenWidth
         self.screenHeight = screenHeight
         
-        let bounds = calculateBounds()
+        let bounds = lastBounds ?? calculateBounds(fittedSize: nil)
         
         // Check if mouse is within overlay bounds
         let (mx, my) = input.getMousePosition()
@@ -189,7 +194,7 @@ public final class UIOverlay: Component {
         if mouseX >= bounds.x && mouseX < bounds.x + bounds.width &&
            mouseY >= bounds.y && mouseY < bounds.y + bounds.height {
             // Mouse is over this overlay
-            uiRoot.handleInput(input, screenWidth: bounds.width, screenHeight: bounds.height)
+            uiRoot.handleInput(input, in: bounds)
             return blocksInput
         }
         
@@ -198,11 +203,11 @@ public final class UIOverlay: Component {
     
     // MARK: - Bounds Calculation
     
-    private func calculateBounds() -> UIRect {
+    private func calculateBounds(fittedSize: Size?) -> UIRect {
         let overlayWidth: Float
         let overlayHeight: Float
         
-        if let size = size {
+        if let size = size ?? fittedSize {
             overlayWidth = size.width
             overlayHeight = size.height
         } else {

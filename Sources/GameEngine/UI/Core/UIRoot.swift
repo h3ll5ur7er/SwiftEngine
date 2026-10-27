@@ -17,16 +17,11 @@ public final class UIRoot {
     /// Padding around the entire UI
     public var padding: EdgeInsets
     
-    /// Previous mouse state for detecting clicks
-    private var wasMouseDown: Bool = false
-    private var lastMouseX: Float = 0
-    private var lastMouseY: Float = 0
-    
-    /// Track previous key states for detecting key presses
-    private var previousKeyStates: [Key: Bool] = [:]
-    
     /// Cached screen bounds
     private var cachedBounds: UIRect = .zero
+    
+    /// Screen size from the most recent render
+    private var lastScreenSize: (width: Float, height: Float) = (0, 0)
     
     public init(
         font: BitmapFont? = nil,
@@ -55,56 +50,30 @@ public final class UIRoot {
         self.content = content
     }
     
-    /// Process input and update UI state
+    /// Process input using the screen size from the most recent render
     public func handleInput(_ input: Input) {
-        let (mx, my) = input.getMousePosition()
-        let mouseX = Float(mx)
-        let mouseY = Float(my)
-        let isMouseDown = input.isMouseButtonDown(.left)
-        
-        // Create appropriate mouse event
-        let eventType: MouseEventType
-        if isMouseDown && !wasMouseDown {
-            eventType = .pressed(.left)
-        } else if !isMouseDown && wasMouseDown {
-            eventType = .released(.left)
-        } else if mouseX != lastMouseX || mouseY != lastMouseY {
-            eventType = .moved
-        } else {
-            // No event to send
-            wasMouseDown = isMouseDown
-            lastMouseX = mouseX
-            lastMouseY = mouseY
-            return
-        }
-        
-        let event = MouseEvent(type: eventType, x: mouseX, y: mouseY)
-        
-        // Get render context bounds (we need the screen size)
-        // For now, use a reasonable default; this will be set properly during render
-        let bounds = UIRect(x: padding.leading, y: padding.top, 
-                           width: 800 - padding.horizontal, 
-                           height: 600 - padding.vertical)
-        
-        _ = content.handleMouse(event, in: bounds)
-        
-        wasMouseDown = isMouseDown
-        lastMouseX = mouseX
-        lastMouseY = mouseY
+        handleInput(input, screenWidth: lastScreenSize.width, screenHeight: lastScreenSize.height)
     }
     
-    /// Render the UI
+    /// Render the UI over the whole screen
     public func render(_ renderContext: RenderContext) {
+        let screen = UIRect(x: 0, y: 0, width: Float(renderContext.width), height: Float(renderContext.height))
+        render(renderContext, in: screen)
+    }
+    
+    /// Render the UI within a frame (in screen coordinates)
+    public func render(_ renderContext: RenderContext, in frame: UIRect) {
         let context = UIRenderContext(renderer: renderContext.renderer, font: font)
         UIGlobals.currentContext = context
         
         // Calculate content bounds
-        let bounds = context.bounds.inset(by: padding)
+        let bounds = frame.inset(by: padding)
         cachedBounds = bounds
+        lastScreenSize = (context.bounds.width, context.bounds.height)
         
         // Draw background if set
         if let bg = backgroundColor {
-            context.fillRect(context.bounds, color: bg)
+            context.fillRect(frame, color: bg)
         }
         
         // Render content
@@ -113,40 +82,49 @@ public final class UIRoot {
         UIGlobals.currentContext = nil
     }
     
-    /// Process input with correct bounds (call after render to use correct bounds)
+    /// Process input for UI covering the whole screen
     public func handleInput(_ input: Input, screenWidth: Float, screenHeight: Float) {
+        handleInput(input, in: UIRect(x: 0, y: 0, width: screenWidth, height: screenHeight))
+    }
+    
+    /// Process input for UI rendered within a frame (in screen coordinates)
+    public func handleInput(_ input: Input, in frame: UIRect) {
         let (mx, my) = input.getMousePosition()
         let mouseX = Float(mx)
         let mouseY = Float(my)
-        let isMouseDown = input.isMouseButtonDown(.left)
         
-        // Calculate actual bounds
-        let bounds = UIRect(
-            x: padding.leading,
-            y: padding.top,
-            width: screenWidth - padding.horizontal,
-            height: screenHeight - padding.vertical
-        )
+        let bounds = frame.inset(by: padding)
         
-        // Create appropriate mouse event
-        let eventType: MouseEventType
-        if isMouseDown && !wasMouseDown {
-            eventType = .pressed(.left)
-        } else if !isMouseDown && wasMouseDown {
-            eventType = .released(.left)
-        } else {
-            eventType = .moved
+        // Send press/release (both, for a click within one frame), otherwise a move
+        let pressed = input.isMouseButtonPressed(.left)
+        let released = input.isMouseButtonReleased(.left)
+        if pressed {
+            _ = content.handleMouse(MouseEvent(type: .pressed(.left), x: mouseX, y: mouseY), in: bounds)
         }
-        
-        let event = MouseEvent(type: eventType, x: mouseX, y: mouseY)
-        _ = content.handleMouse(event, in: bounds)
-        
-        wasMouseDown = isMouseDown
-        lastMouseX = mouseX
-        lastMouseY = mouseY
+        if released {
+            _ = content.handleMouse(MouseEvent(type: .released(.left), x: mouseX, y: mouseY), in: bounds)
+        }
+        if !pressed && !released {
+            _ = content.handleMouse(MouseEvent(type: .moved, x: mouseX, y: mouseY), in: bounds)
+        }
         
         // Handle keyboard input
         handleKeyboardInput(input, in: bounds)
+    }
+    
+    /// The size the content (plus padding) wants, limited to the given space
+    public func fittingSize(maxWidth: Float, maxHeight: Float, renderer: Renderer) -> Size {
+        // Text measurement needs the font from a render context
+        let previous = UIGlobals.currentContext
+        UIGlobals.currentContext = UIRenderContext(renderer: renderer, font: font)
+        defer { UIGlobals.currentContext = previous }
+        
+        // Ask for the content's ideal size (no proposal), then clamp to the space
+        let content = content.sizeThatFits(ProposedSize(width: nil, height: nil))
+        return Size(
+            width: min(maxWidth, content.width + padding.horizontal),
+            height: min(maxHeight, content.height + padding.vertical)
+        )
     }
     
     /// Process keyboard input
@@ -163,10 +141,7 @@ public final class UIRoot {
         let isShiftDown = input.isKeyDown(.shift)
         
         for key in keysToCheck {
-            let isDown = input.isKeyDown(key)
-            let wasDown = previousKeyStates[key] ?? false
-            
-            if isDown && !wasDown {
+            if input.isKeyPressed(key) {
                 // Key just pressed
                 let event = KeyboardEvent(type: .pressed, key: key)
                 _ = content.handleKeyboard(event)
@@ -176,13 +151,12 @@ public final class UIRoot {
                     let charEvent = KeyboardEvent(type: .character(char), key: key)
                     _ = content.handleKeyboard(charEvent)
                 }
-            } else if !isDown && wasDown {
+            }
+            if input.isKeyReleased(key) {
                 // Key just released
                 let event = KeyboardEvent(type: .released, key: key)
                 _ = content.handleKeyboard(event)
             }
-            
-            previousKeyStates[key] = isDown
         }
     }
     
