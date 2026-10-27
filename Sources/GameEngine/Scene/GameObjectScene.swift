@@ -102,8 +102,22 @@ open class GameObjectScene: Scene {
         pendingDestroy.removeAll()
     }
     
+    /// Default rendering: clear to the main camera's background, draw all mesh renderers
+    /// from the main camera, then draw UI overlays. Override for custom rendering.
     open func render(context: RenderContext) {
-        // Override in subclasses to implement rendering
+        guard let camera = Camera.main else {
+            context.renderer.clear(.black)
+            renderUIOverlays(context: context)
+            return
+        }
+        
+        context.renderer.clear(camera.backgroundColor)
+        RenderPipeline.shared.render(
+            meshRenderers: findComponentsOfType(MeshRenderer.self),
+            camera: camera,
+            context: context
+        )
+        renderUIOverlays(context: context)
     }
     
     // MARK: - GameObject Management

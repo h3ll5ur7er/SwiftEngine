@@ -94,20 +94,6 @@ public final class GameObjectDemoScene: GameObjectScene {
         super.update(context: context, input: input)
     }
     
-    public override func render(context: RenderContext) {
-        // Clear with camera background color
-        let bgColor = Camera.main?.backgroundColor ?? .steelBlue
-        context.renderer.clear(bgColor)
-        
-        guard let camera = Camera.main else { return }
-        
-        // Use the render pipeline
-        let meshRenderers = findComponentsOfType(MeshRenderer.self)
-        RenderPipeline.shared.render(
-            meshRenderers: meshRenderers,
-            camera: camera,
-            context: context
-        )
-    }
+    // Rendering uses GameObjectScene's default render(context:)
 }
 
