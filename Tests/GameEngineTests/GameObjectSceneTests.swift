@@ -10,6 +10,7 @@ final class LifecycleRecorder: Component {
     override func onEnable() { calls.append("onEnable") }
     override func start() { calls.append("start") }
     override func update(deltaTime: Float) { calls.append("update") }
+    override func onDisable() { calls.append("onDisable") }
 }
 
 @Suite("GameObjectScene Tests")
@@ -83,6 +84,24 @@ struct GameObjectSceneTests {
         scene.update(context: frame(1), input: input)
         
         #expect(recorder.calls.contains("start"))
+    }
+    
+    @Test("Toggling isEnabled calls onDisable/onEnable")
+    func toggleEnabled() {
+        let go = GameObject(name: "A")
+        let recorder = go.addComponent(LifecycleRecorder.self)
+        recorder.calls.removeAll()
+        
+        recorder.isEnabled = false
+        recorder.isEnabled = false
+        recorder.isEnabled = true
+        #expect(recorder.calls == ["onDisable", "onEnable"])
+        
+        // No callbacks while the GameObject is inactive
+        go.isActive = false
+        recorder.calls.removeAll()
+        recorder.isEnabled = false
+        #expect(recorder.calls.isEmpty)
     }
     
     // MARK: - Lookup

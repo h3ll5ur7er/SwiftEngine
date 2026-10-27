@@ -7,7 +7,17 @@ open class Component {
     public private(set) weak var gameObject: GameObject?
     
     /// Whether this component is enabled
-    public var isEnabled: Bool = true
+    /// Changing it calls onEnable()/onDisable() while attached to an active GameObject
+    public var isEnabled: Bool = true {
+        didSet {
+            guard isEnabled != oldValue, let gameObject, gameObject.isActive else { return }
+            if isEnabled {
+                onEnable()
+            } else {
+                onDisable()
+            }
+        }
+    }
     
     /// Quick access to the transform
     public var transform: Transform {

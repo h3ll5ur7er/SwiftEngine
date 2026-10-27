@@ -85,6 +85,20 @@ extension EngineSingletonTests {
             #expect(ball.transform.position == Vec3d(0, 10, 0))
         }
         
+        @Test("Disabling a RigidBody removes it from the simulation")
+        func disabledBodyStops() {
+            let (ball, body) = makeBall(at: Vec3d(0, 10, 0))
+            #expect(PhysicsSystem.shared.bodyCount == 1)
+            
+            body.isEnabled = false
+            #expect(PhysicsSystem.shared.bodyCount == 0)
+            PhysicsSystem.shared.update(deltaTime: 1.0 / 30.0)
+            #expect(ball.transform.position == Vec3d(0, 10, 0))
+            
+            body.isEnabled = true
+            #expect(PhysicsSystem.shared.bodyCount == 1)
+        }
+        
         @Test("onCollision is reported once per pair per frame")
         func onCollisionReported() {
             let (ball, _) = makeBall(at: Vec3d(0, 0.45, 0))
