@@ -145,6 +145,22 @@ docs/
 .\build.ps1 test
 ```
 
+### Linux
+
+```bash
+# One-time setup (Debian/Ubuntu): Swift 6.2 via swiftly, X11 headers, Xvfb
+./scripts/setup-linux.sh
+
+swift build                  # Debug build
+swift test                   # Run tests
+swift run -c release Game    # Run game (needs an X11 display)
+
+# Headless run with a screenshot
+Xvfb :99 -screen 0 1280x1024x24 &
+DISPLAY=:99 .build/release/Game &
+sleep 5 && DISPLAY=:99 import -window root screenshot.png
+```
+
 ## License
 
 MIT License - See LICENSE file for details.
