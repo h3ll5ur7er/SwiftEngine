@@ -23,6 +23,18 @@ Understanding the frame-by-frame execution of GameEngine.
 └─────────────────────────────────────────────────────────────────────┘
 ```
 
+### Engine Frame Steps
+
+`Engine.run()` performs these steps every frame, all on the main actor:
+
+1. **Poll input** - process window events into `Input` (press/release transitions are kept for the frame)
+2. **Update scene** - `scene.update(context:input:)`; a `GameObjectScene` starts new objects, runs `fixedUpdate`, `update`, `lateUpdate`, then destroys pending objects
+3. **Physics and actors** - `ActorCoordinator.shared.update` steps physics through `PhysicsSystem` (inline by default, on `PhysicsActor` when `asyncPhysicsEnabled`), then runs any `GameLogicActor` handlers and applies their transform updates
+4. **Render** - `scene.render(context:)`
+5. **Present** - copy the backbuffer to the window
+6. **Yield** - `await Task.yield()` lets other main-actor work run (`Task {}` bodies, async asset loads)
+7. **Frame limiting** - sleep to honor `targetFps`
+
 ## Frame Timeline
 
 ```
@@ -78,7 +90,7 @@ Within each frame, updates happen in a specific order:
 │      └─▶ internalStart() called on new objects                      │
 │                                                                      │
 │   2. Fixed Update Loop                                              │
-│      └─▶ fixedUpdate() at fixed 50Hz (physics)                      │
+│      └─▶ fixedUpdate() at fixed 60Hz (physics rate)                 │
 │          └─▶ accumulator += deltaTime                               │
 │          └─▶ while accumulator >= fixedDeltaTime:                   │
 │                  call fixedUpdate() on all components               │
@@ -99,13 +111,13 @@ Within each frame, updates happen in a specific order:
 
 | Method | Timing | Use Case |
 |--------|--------|----------|
-| `fixedUpdate()` | Fixed interval (default: 50Hz) | Physics, deterministic logic |
+| `fixedUpdate()` | Fixed interval (default: 60Hz, `fixedDeltaTime`) | Physics, deterministic logic |
 | `update()` | Every frame (variable) | Game logic, input handling |
 | `lateUpdate()` | After all updates | Camera follow, cleanup |
 
 ```swift
 public override func fixedUpdate(fixedDeltaTime: Float) {
-    // Physics simulation - always 0.02 seconds
+    // Fixed step - always 1/60 second by default
     velocity += gravity * fixedDeltaTime
     position += velocity * fixedDeltaTime
 }
@@ -136,7 +148,10 @@ public struct FrameContext {
     public let totalTime: Double
     
     /// Current frame number
-    public let frameNumber: UInt64
+    public let frameCount: UInt64
+    
+    /// Frames per second (updated once per second)
+    public let fps: Double
 }
 ```
 
@@ -149,8 +164,8 @@ public override func update(context: FrameContext, input: Input) {
     transform.localPosition.y = wave
     
     // Log every 100 frames
-    if context.frameNumber % 100 == 0 {
-        print("Frame \(context.frameNumber)")
+    if context.frameCount % 100 == 0 {
+        print("Frame \(context.frameCount)")
     }
     
     super.update(context: context, input: input)
@@ -167,10 +182,13 @@ public struct RenderContext {
     public let renderer: Renderer
     
     /// Screen width in pixels
-    public let width: Int
+    public var width: Int32 { get }
     
     /// Screen height in pixels
-    public let height: Int
+    public var height: Int32 { get }
+    
+    /// Screen bounds
+    public var bounds: Rect { get }
 }
 ```
 
@@ -230,13 +248,8 @@ public final class MyScene: GameObjectScene {
             context: context
         )
         
-        // 5. Render UI (on top)
-        renderUI(context: context)
-    }
-    
-    private func renderUI(context: RenderContext) {
-        // Draw 2D UI elements
-        Primitives.drawText("Score: 100", at: Vec2(10, 10), color: .white)
+        // 5. Render UI overlays (UIOverlay components) on top
+        UIOverlayManager.shared.renderOverlays(context: context)
     }
 }
 ```

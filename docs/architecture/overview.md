@@ -153,11 +153,10 @@ Components follow a simple lifecycle:
 1. **Collect Meshes** - Gather all `MeshRenderer` components
 2. **Frustum Cull** - Skip objects outside camera view
 3. **Transform Vertices** - Model → World → View → Clip space
-4. **Triangle Culling** - Backface culling, near plane clipping
-5. **Lighting** - Calculate shading based on lights
-6. **Depth Sort** - Painter's algorithm (back-to-front)
-7. **Rasterize** - Fill triangles to backbuffer
-8. **Present** - Display backbuffer in window
+4. **Clip & Cull** - Clip triangles against the near/far planes, backface culling
+5. **Lighting** - Flat (per face) or Gouraud (per vertex) shading from the scene lights
+6. **Rasterize** - Scanline fill with a per-pixel depth buffer (`TriangleRasterizer`)
+7. **Present** - Display backbuffer in window
 
 ## Coordinate System
 
@@ -171,8 +170,10 @@ GameEngine uses a **right-handed** coordinate system:
         └───────── X (right)
        /
       /
-     Z (forward, out of screen)
+     Z (toward the viewer, out of screen)
 ```
+
+Cameras and `Transform.forward` look down **-Z** (into the screen).
 
 ### Space Transformations
 

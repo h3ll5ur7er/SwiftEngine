@@ -1,6 +1,6 @@
 # GameEngine Documentation
 
-A lightweight, software-rendered 3D game engine written in Swift for Windows.
+A lightweight, software-rendered 3D game engine written in Swift for Windows and Linux.
 
 ```
    ___                      ___             _            
@@ -16,7 +16,7 @@ A lightweight, software-rendered 3D game engine written in Swift for Windows.
 GameEngine is a component-based game framework featuring:
 
 - **GameObject/Component Architecture** - Unity-style entity system
-- **Software 3D Rendering** - No GPU required, runs everywhere
+- **Software 3D Rendering** - No GPU required: depth-buffered rasterizer with near/far clipping
 - **Built-in Primitives** - Cubes, planes, quads out of the box
 - **Material System** - Colors, textures, and shading models
 - **Lighting** - Directional and ambient lights
@@ -33,7 +33,7 @@ import GameEngine
 @main
 @MainActor
 struct MyGame {
-    static func main() {
+    static func main() async {
         let config = EngineConfig(
             title: "My Game",
             width: 800,
@@ -42,7 +42,7 @@ struct MyGame {
         
         let engine = Engine(config: config)
         engine.loadScene(MyScene())
-        engine.run()
+        await engine.run()
     }
 }
 ```
@@ -125,11 +125,13 @@ docs/
 
 ## Requirements
 
-- Swift 6.0+
-- Windows 10/11
-- Visual Studio 2022 Build Tools
+- Swift 6.2+
+- Windows 10/11 with Visual Studio 2022 Build Tools, or
+- Linux with X11 (Debian/Ubuntu: `scripts/setup-linux.sh` installs everything)
 
 ## Building
+
+### Windows
 
 ```powershell
 # Debug build

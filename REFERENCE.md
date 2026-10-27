@@ -9,7 +9,7 @@ A cross-platform 3D game engine written in Swift featuring:
 - Actor-based concurrency (PhysicsActor, GameLogicActor, AssetLoadingActor)
 - SwiftUI-inspired UI system
 
-Currently supported platforms: Windows (via WinSDK)
+Currently supported platforms: Windows (via WinSDK) and Linux (via X11)
 
 ---
 
@@ -23,6 +23,7 @@ Sources/
 │   ├── Timer.swift      # High-precision timing
 │   ├── KeyCodeTranslator.swift
 │   └── Platform.swift   # Platform utilities
+├── LinuxPlatform/       # Linux (X11) implementation, same type names as WindowsPlatform
 ├── GameEngine/
 │   ├── Actors/          # Concurrent actors for off-main-thread work
 │   ├── Components/      # GameObject components (Camera, Colliders, etc.)
@@ -83,6 +84,8 @@ public final class GameObject {
     public func getComponents<T: Component>(_ type: T.Type) -> [T]
     public func removeComponent(_ component: Component)
     public func setParent(_ newParent: GameObject?, worldPositionStays: Bool = true)
+    public var parent: GameObject? { get }      // From the transform hierarchy
+    public var children: [GameObject] { get }
 }
 ```
 
@@ -375,15 +378,43 @@ public final class UIOverlay: Component {
 
 ---
 
-## Physics System (`Engine/PhysicsSystem.swift`)
+## Physics System
+
+Integration, collision detection and resolution live once in `PhysicsSimulation`
+(`Engine/PhysicsSimulation.swift`), a `Sendable` value type driven either inline by
+`PhysicsSystem` or off the main actor by `PhysicsActor`; both give identical results.
+
+- Colliders without a `RigidBody` are static: they block bodies but never move.
+- Trigger colliders are reported (`onCollision`) but not resolved.
+- Box colliders are axis-aligned; rotation is ignored for collision.
+
+### `PhysicsSettings` / `PhysicsSimulation` (Sendable)
+```swift
+public struct PhysicsSettings {
+    public var fixedDeltaTime: Float          // 1/60
+    public var maxDeltaTime: Float            // 1/30 (frame time cap)
+    public var maxStepsPerFrame: Int          // 4
+    public var gravity: Vec3d                 // (0, -9.81, 0)
+    public var contactAngularResponse: Float  // 0 = contacts don't spin bodies
+}
+
+public struct PhysicsSimulation {
+    public var settings: PhysicsSettings
+    public var interpolationAlpha: Float { get }
+    public mutating func simulate(_ input: PhysicsFrameInput) -> PhysicsStepResult
+    public mutating func resetAccumulator()
+}
+```
 
 ### `PhysicsSystem` (MainActor)
-Coordinates physics simulation.
+Tracks rigid bodies, snapshots them each frame, runs the simulation and applies results.
+The engine steps it once per frame through `ActorCoordinator`.
 ```swift
 public final class PhysicsSystem {
     public static let shared: PhysicsSystem
     
     public var isEnabled: Bool
+    public var settings: PhysicsSettings
     public var gravity: Vec3d
     public var collisionsThisFrame: Int { get }
     public var stepsThisFrame: Int { get }
@@ -391,24 +422,26 @@ public final class PhysicsSystem {
     
     public func register(_ rigidBody: RigidBody)
     public func unregister(_ rigidBody: RigidBody)
-    public func update(deltaTime: Float)           // Synchronous
-    public func updateAsync(deltaTime: Float) async // Async (experimental)
+    public func update(deltaTime: Float)            // Inline on the main actor
+    public func updateAsync(deltaTime: Float) async // On PhysicsActor
     public func clear()
 }
 ```
 
 ### `CollisionManager` (MainActor)
+Registry of active colliders and the collision callback.
 ```swift
 public final class CollisionManager {
     public static let shared: CollisionManager
     
+    /// Called once per frame for each overlapping pair (including triggers);
+    /// the info's normal points from the first collider toward the second
     public var onCollision: ((Collider, Collider, CollisionInfo) -> Void)?
     public var colliderCount: Int { get }
     public var allColliders: [Collider] { get }
     
     public func register(_ collider: Collider)
     public func unregister(_ collider: Collider)
-    public func detectCollisions() -> [(Collider, Collider, CollisionInfo)]
 }
 ```
 
@@ -422,12 +455,15 @@ Off-main-thread physics simulation.
 public actor PhysicsActor {
     public static let shared: PhysicsActor
     
-    public var fixedDeltaTime: Float  // Default: 1/60
-    public var maxDeltaTime: Float
-    public var maxStepsPerFrame: Int
-    public var gravity: Vec3d
+    public var settings: PhysicsSettings
+    public var fixedDeltaTime: Float { get }
+    public var maxDeltaTime: Float { get }
+    public var maxStepsPerFrame: Int { get }
+    public var gravity: Vec3d { get }
     public var isEnabled: Bool
     
+    public func configure(_ settings: PhysicsSettings)
+    public func setEnabled(_ enabled: Bool)
     public func simulate(input: PhysicsFrameInput) async -> PhysicsStepResult
 }
 ```
@@ -441,6 +477,7 @@ public actor GameLogicActor {
     public func registerHandler(for componentType: String, 
         handler: @escaping @Sendable (GameObjectSnapshot, Float) async -> TransformUpdate?)
     public func registerTask(name: String, task: @escaping @Sendable (Float) async -> Void)
+    public var hasWork: Bool { get }
     public func processGameObjects(_ snapshots: [GameObjectSnapshot], deltaTime: Float) async -> GameLogicResult
     public func processAIDecisions(entities: [AIEntityState], worldState: WorldStateSnapshot) async -> [GameUUID: AIDecision]
 }
@@ -491,23 +528,33 @@ public protocol Scene: AnyObject {
 ```
 
 ### `GameObjectScene` (MainActor)
-Base class for scenes with GameObjects.
+Base class for scenes with GameObjects. Objects created during `onLoad` are started
+(`Component.start()`) on the first update.
 ```swift
 open class GameObjectScene: Scene {
-    public private(set) var gameObjects: [GameObject]
+    public private(set) var rootGameObjects: [GameObject]
+    public private(set) var allGameObjects: [GameObject]
     public private(set) weak var engine: Engine?
+    public var fixedDeltaTime: Float  // fixedUpdate() rate, default 1/60
     
     public func createGameObject(name: String) -> GameObject
-    public func createGameObject(name: String, parent: GameObject) -> GameObject
-    public func destroyGameObject(_ gameObject: GameObject)
-    public func findGameObject(named: String) -> GameObject?
-    public func findGameObjects(withTag: String) -> [GameObject]
-    public func getAllMeshRenderers() -> [MeshRenderer]
+    public func createGameObject(name: String, at position: Vec3d) -> GameObject
+    public func addGameObject(_ gameObject: GameObject)
+    public func destroy(_ gameObject: GameObject)  // At end of frame, with its children
+    public func find(name: String) -> GameObject?
+    public func findAll(name: String) -> [GameObject]
+    public func findWithTag(_ tag: String) -> [GameObject]
+    public func findFirstWithTag(_ tag: String) -> GameObject?
+    public func findObjectsOfType<T: Component>(_ type: T.Type) -> [GameObject]
+    public func findComponentsOfType<T: Component>(_ type: T.Type) -> [T]
+    public func renderUIOverlays(context: RenderContext)
     
-    // Override these
-    open func setupScene() {}
-    open func updateScene(context: FrameContext, input: Input) {}
-    open func renderScene(context: RenderContext, camera: Camera) {}
+    // Override these (call super)
+    open func onLoad(engine: Engine)       // Build the scene here
+    open func onUnload(engine: Engine)
+    open func update(context: FrameContext, input: Input)
+    // Default: clear to Camera.main's background, render meshes, then UI overlays
+    open func render(context: RenderContext)
 }
 ```
 
@@ -633,12 +680,28 @@ public struct Color {
 ```
 
 ### `RenderPipeline` (MainActor)
-3D rendering with lighting.
+3D rendering with lighting. Each call clears the depth buffer, transforms vertices,
+clips triangles against the near/far planes, culls back faces, shades (flat, or
+Gouraud for `ShadingModel.gouraud`; `RenderMode.wireframe` draws outlines) and
+rasterizes with a per-pixel depth test. Textures are not sampled yet.
 ```swift
 public final class RenderPipeline {
     public static let shared: RenderPipeline
     
     public func render(meshRenderers: [MeshRenderer], camera: Camera, context: RenderContext)
+}
+```
+
+### `TriangleRasterizer` / `TriangleClipper`
+Depth-tested scanline rasterizer (pixel-center fill rule: shared edges have no gaps or
+overdraw) and Sutherland-Hodgman clipping in clip space.
+```swift
+public enum TriangleRasterizer {
+    public static func fill(_ v0: RasterVertex, _ v1: RasterVertex, _ v2: RasterVertex, color: Color, into target: RasterTarget)
+    public static func fillSmooth(_ v0: RasterVertex, _ v1: RasterVertex, _ v2: RasterVertex, alpha: UInt8 = 255, into target: RasterTarget)
+}
+public enum TriangleClipper {
+    public static func clip(_ a: Vertex, _ b: Vertex, _ c: Vertex) -> [Vertex]
 }
 ```
 
@@ -650,7 +713,7 @@ public final class RenderPipeline {
 
 The platform layer uses a **separate compilation unit** approach for optimal performance:
 
-1. **Platform Modules** (`Sources/WindowsPlatform/`, future: `Sources/MacOSPlatform/`, etc.)
+1. **Platform Modules** (`Sources/WindowsPlatform/`, `Sources/LinuxPlatform/`, future: `Sources/MacOSPlatform/`)
    - Each platform has its own Swift module with concrete types
    - Types use generic names (e.g., `Backbuffer`, not `WindowsBackbuffer`)
    - No protocol overhead - direct concrete type usage
@@ -697,6 +760,9 @@ public typealias PlatformTimer = WindowsPlatform.Timer
 public typealias PlatformKeyCodeTranslator = WindowsPlatform.KeyCodeTranslator
 public typealias PlatformVirtualKey = WindowsPlatform.VirtualKey
 public typealias PlatformMouseButtonIndex = WindowsPlatform.MouseButtonIndex
+#elseif os(Linux)
+public typealias PlatformWindow = LinuxPlatform.Window
+// ... same set of aliases for LinuxPlatform
 #endif
 ```
 
@@ -714,7 +780,7 @@ public struct SharedTimer: Sendable {
 }
 ```
 
-### Platform Module Types (WindowsPlatform)
+### Platform Module Types (WindowsPlatform, LinuxPlatform)
 
 Each platform module provides these concrete types with generic names:
 
@@ -967,7 +1033,9 @@ struct Main {
 
 // Scene definition
 class MyScene: GameObjectScene {
-    override func setupScene() {
+    override func onLoad(engine: Engine) {
+        super.onLoad(engine: engine)
+        
         // Create camera
         let cameraObj = createGameObject(name: "Camera")
         cameraObj.transform.position = Vec3d(0, 5, 10)
@@ -984,14 +1052,14 @@ class MyScene: GameObjectScene {
         // Create floor
         let floor = createGameObject(name: "Floor")
         floor.addComponent(MeshRenderer(mesh: PlaneMesh(width: 20, depth: 20), color: .gray))
-        floor.addComponent(PlaneCollider())
-        floor.addComponent(RigidBody(mass: 1.0, isKinematic: true))
+        floor.addComponent(PlaneCollider())  // Static: no RigidBody needed
         
         // Add lights
         let lightObj = createGameObject(name: "Light")
         lightObj.addComponent(DirectionalLight(direction: Vec3d(0.5, 1, 0.3)))
         lightObj.addComponent(AmbientLight(intensity: 0.2))
     }
+    // GameObjectScene's default render() draws the scene from Camera.main
 }
 ```
 
@@ -1000,9 +1068,10 @@ class MyScene: GameObjectScene {
 ## Known Issues / TODOs
 
 1. **Window close in debug mode**: Process may not terminate cleanly in debug builds; works correctly in release.
-2. **Async physics**: Currently using synchronous physics due to interaction with Win32 message pump; async version available but experimental.
+2. **Async physics**: Physics runs inline on the main actor by default; set `ActorCoordinator.shared.asyncPhysicsEnabled` to run it on `PhysicsActor` (not yet verified on Windows).
 3. **UI System**: Full documentation pending for Text/, State/, Containers/, Controls/, Views/ subdirectories.
-4. **Platform Support**: Currently only Windows is implemented. macOS and Linux support planned for future releases.
+4. **Platform Support**: Windows and Linux are implemented; macOS is planned.
+5. **Rendering**: Materials' textures, emission and transparency are not used by the rasterizer yet; box colliders ignore rotation.
 
 ---
 
@@ -1012,7 +1081,7 @@ class MyScene: GameObjectScene {
 |----------|--------|--------|
 | Windows  | ✅ Fully supported | `WindowsPlatform` |
 | macOS    | 🔲 Planned | `MacOSPlatform` |
-| Linux    | 🔲 Planned | `LinuxPlatform` |
+| Linux    | ✅ Supported (X11) | `LinuxPlatform` |
 
 ### Performance Notes
 
