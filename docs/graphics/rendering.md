@@ -13,9 +13,9 @@ Understanding how GameEngine renders your 3D scenes.
 │  │ Meshes  │   │Vertices │   │Triangles│   │ & Shade │   │  Draw   │  │
 │  └─────────┘   └─────────┘   └─────────┘   └─────────┘   └─────────┘  │
 │       │             │             │             │             │         │
-│  MeshRenderer  Model→Clip    Frustum +     Directional   Filled       │
-│  components    space         Backface      + Ambient     triangles    │
-│                              culling       lighting                    │
+│  MeshRenderer  Model→Clip    Frustum,      Directional   Depth-tested │
+│  components    space         near/far clip + Ambient     triangles    │
+│                              + backface    lighting                    │
 │                                                                          │
 └─────────────────────────────────────────────────────────────────────────┘
 ```
@@ -23,6 +23,8 @@ Understanding how GameEngine renders your 3D scenes.
 ## Using the Pipeline
 
 ### Basic Usage
+
+`GameObjectScene` already has a default `render(context:)` that does this: it matches `Camera.main`'s aspect ratio to the window, clears to the camera's background color, renders all `MeshRenderer`s, then draws UI overlays. Override it only for custom rendering, along these lines:
 
 ```swift
 public override func render(context: RenderContext) {
@@ -110,7 +112,8 @@ Local Space ────▶ World Space ────▶ View Space ────�
 ```swift
 // For each vertex:
 let worldPos = worldMatrix.transformPoint(vertex.position)
-let clipPos = mvpMatrix.transformPoint(vertex.position)  // Vec4d
+let p = vertex.position
+let clipPos = mvp * Vec4d(p.x, p.y, p.z, 1)  // Vec4d, before the perspective divide
 ```
 
 ### 4. Triangle Processing
@@ -118,19 +121,23 @@ let clipPos = mvpMatrix.transformPoint(vertex.position)  // Vec4d
 Each triangle is processed individually:
 
 ```swift
-// Near plane clipping
-if v0.w < nearW && v1.w < nearW && v2.w < nearW {
-    continue  // All behind camera - skip
+// Trivially reject triangles entirely outside the left/right/top/bottom planes
+if (c0.x > c0.w && c1.x > c1.w && c2.x > c2.w) ||
+   (c0.x < -c0.w && c1.x < -c1.w && c2.x < -c2.w) || /* ...same for y... */ {
+    return
 }
 
-// Perspective divide: Clip → NDC
-let ndc0 = Vec3d(v0.x / v0.w, v0.y / v0.w, v0.z / v0.w)
+// Triangles crossing the near or far plane are clipped (TriangleClipper);
+// the resulting polygon is drawn as a triangle fan
+if !TriangleClipper.isInsideDepthRange(c0, c1, c2) {
+    let polygon = TriangleClipper.clip(v0, v1, v2)
+}
 
-// NDC → Screen coordinates
-let screen0 = Vec2(
-    Int32((ndc0.x + 1) * 0.5 * screenWidth),
-    Int32((1 - ndc0.y) * 0.5 * screenHeight)  // Y flipped
-)
+// Perspective divide: Clip → NDC → Screen coordinates
+let invW = 1 / c.w
+let screenX = (c.x * invW + 1) * 0.5 * screenWidth
+let screenY = (1 - c.y * invW) * 0.5 * screenHeight  // Y flipped
+let depth = c.z * invW                                // kept for the depth test
 ```
 
 ### 5. Backface Culling
@@ -161,7 +168,7 @@ if material.cullMode == .front && cross < 0 { continue }
 
 ### 6. Lighting Calculation
 
-Flat shading computes one color per triangle:
+Flat shading (the default) computes one color per triangle from its face normal. Gouraud shading (`ShadingModel.gouraud`) instead lights each vertex using its normal (transformed by the inverse-transpose of the world matrix) and interpolates the colors across the triangle. Unlit materials skip lighting.
 
 ```swift
 // Calculate face normal
@@ -178,42 +185,32 @@ let finalIntensity = ambientIntensity + contribution
 let finalColor = baseColor * finalIntensity
 ```
 
-### 7. Depth Sorting (Painter's Algorithm)
+### 7. Depth Testing (Z-Buffer)
 
-Triangles are sorted back-to-front:
+There is no sorting step. Each call to `RenderPipeline.render` first clears a per-pixel depth buffer (`Renderer.clearDepth()`), and the rasterizer only writes a pixel when it is closer than what is already there:
 
 ```
-Back-to-Front Rendering:
+Per-pixel depth test:
 
-1. Sort by average Z depth
-2. Draw furthest first
-3. Closer objects overwrite
+1. Interpolate depth (NDC z) across the triangle
+2. Compare with the depth buffer at that pixel
+3. Write color + depth only if closer
 
-    ┌───────────────────────┐
-    │ ┌─────────────────┐   │  ← Drawn first (back)
-    │ │   ┌─────────┐   │   │
-    │ │   │  Near   │   │   │  ← Drawn last (front)
-    │ │   └─────────┘   │   │
-    │ └─────────────────┘   │
-    └───────────────────────┘
-
-Result: Near objects correctly overlap far objects
+Result: Near surfaces correctly hide far ones,
+        regardless of draw order - even intersecting triangles
 ```
 
 ```swift
-// Sort triangles
-trianglesToRender.sort { $0.depth > $1.depth }
-
-// Draw in order
-for tri in trianglesToRender {
-    Primitives.fillTriangle(tri.vertices[0], tri.vertices[1], tri.vertices[2], 
-                           color: tri.color)
+// Inside the rasterizer, for each pixel of a triangle:
+if z < depth[i] {
+    depth[i] = z
+    pixels[i] = color
 }
 ```
 
 ### 8. Rasterization
 
-Finally, triangles are filled pixel by pixel:
+Finally, triangles are filled pixel by pixel (`TriangleRasterizer`), with the depth test above. Materials with `renderMode = .wireframe` draw triangle outlines instead:
 
 ```
 Screen Space Triangle:
@@ -227,7 +224,8 @@ Screen Space Triangle:
 
 For each scanline Y from 50 to 150:
   - Find left and right X intersections
-  - Fill pixels from left to right
+  - Fill pixels from left to right (depth-tested;
+    Gouraud colors interpolated per pixel)
 ```
 
 ## Coordinate Systems
@@ -265,8 +263,8 @@ For each scanline Y from 50 to 150:
 public enum ShadingModel {
     case unlit    // No lighting - use base color as-is
     case flat     // One color per triangle face
-    case gouraud  // Interpolate colors across vertices (not implemented)
-    case pbr      // Physically-based rendering (not implemented)
+    case gouraud  // Per-vertex lighting, colors interpolated across the triangle
+    case pbr      // Physically-based rendering (not implemented; shaded like .flat)
 }
 ```
 
@@ -310,9 +308,9 @@ renderer.mesh = myMesh  // Should have valid bounds property
 renderer.isVisible = false  // Won't be processed at all
 ```
 
-### 4. Batch Similar Materials
+### 4. No Sorting Needed
 
-The pipeline already sorts by depth, but keeping similar materials together can help cache performance.
+The pipeline doesn't sort meshes or triangles; the depth buffer resolves visibility, so draw order doesn't affect the result.
 
 ## Custom Rendering
 
@@ -333,8 +331,8 @@ public override func render(context: RenderContext) {
     
     // Direct line drawing
     Primitives.drawLine(
-        Vec2(0, 0),
-        Vec2(context.width, context.height),
+        from: Vec2(0, 0),
+        to: Vec2(context.width, context.height),
         color: .white
     )
 }

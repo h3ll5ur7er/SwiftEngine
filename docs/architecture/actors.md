@@ -1,6 +1,6 @@
 # Actor System
 
-GameEngine uses Swift Actors to run CPU-intensive operations off the main thread, keeping the game loop responsive.
+GameEngine uses Swift Actors to isolate physics, asset loading and game logic state from the main actor. The engine awaits each actor's results within the frame, so actor work happens before rendering, not in parallel with it.
 
 ## Overview
 
@@ -22,18 +22,18 @@ GameEngine uses Swift Actors to run CPU-intensive operations off the main thread
 │   ┌────────────────────────────┐   ┌────────────────────────────┐          │
 │   │      PhysicsActor          │   │   AssetLoadingActor        │          │
 │   │                            │   │                            │          │
-│   │  • Collision detection     │   │  • Mesh loading            │          │
-│   │  • Rigid body simulation   │   │  • Texture loading         │          │
+│   │  • Collision detection     │   │  • Mesh loading (OBJ, STL) │          │
+│   │  • Rigid body simulation   │   │  • Mesh cache              │          │
 │   │  • Fixed timestep          │   │  • Async file I/O          │          │
-│   │  • 60Hz physics            │   │  • Progress tracking       │          │
+│   │  • Opt-in (inline default) │   │  • Batch loading           │          │
 │   └────────────────────────────┘   └────────────────────────────┘          │
 │                                                                              │
 │   ┌────────────────────────────┐   ┌────────────────────────────┐          │
 │   │    GameLogicActor          │   │    ActorCoordinator        │          │
 │   │                            │   │                            │          │
-│   │  • AI calculations         │   │  • Orchestrates updates    │          │
-│   │  • Pathfinding             │   │  • Data flow management    │          │
-│   │  • Heavy computations      │   │  • Sync point              │          │
+│   │  • Per-component handlers  │   │  • Orchestrates updates    │          │
+│   │  • Custom per-frame tasks  │   │  • Data flow management    │          │
+│   │  • Batch AI decisions      │   │  • Sync point              │          │
 │   └────────────────────────────┘   └────────────────────────────┘          │
 │                                                                              │
 └─────────────────────────────────────────────────────────────────────────────┘
@@ -43,26 +43,29 @@ GameEngine uses Swift Actors to run CPU-intensive operations off the main thread
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│                    Single-Threaded vs Actor Model                            │
-│                                                                              │
-│   SINGLE-THREADED                      ACTOR MODEL                          │
-│   ───────────────                      ───────────                          │
-│                                                                              │
-│   Frame 1:                             Frame 1:                             │
-│   ┌────────────────────────────┐       ┌─────────────┐ ┌───────────┐       │
-│   │ Input │Physics│ AI │Render │       │ Main Thread │ │  Physics  │       │
-│   └────────────────────────────┘       │ Input+Render│ │  (async)  │       │
-│                                        └─────────────┘ └───────────┘       │
-│   Total: 16ms                          Total: 10ms (parallelized)          │
-│                                                                              │
-│   Heavy physics blocks rendering       Physics runs in parallel             │
-│                                                                              │
+│                    Inline vs Actor Physics (one frame)                      │
+│                                                                             │
+│   INLINE (default)                     ACTOR (asyncPhysicsEnabled = true)   │
+│   ────────────────                     ──────────────────────────────────   │
+│                                                                             │
+│   MainActor:                           MainActor:                           │
+│   ┌────────────────────────────┐       ┌──────────────┐     ┌────────────┐  │
+│   │ Input│Update│Physics│Render│       │ Input│Update │ ... │   Render   │  │
+│   └────────────────────────────┘       └──────┬───────┘     └─────▲──────┘  │
+│                                               │ await             │         │
+│                                        PhysicsActor: ┌───────┐    │         │
+│                                                      │Physics├────┘         │
+│                                                      └───────┘              │
+│                                                                             │
+│   Same simulation code                 Simulation state isolated on the     │
+│   (PhysicsSimulation)                  actor; rendering still waits for it  │
+│                                                                             │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
 ## PhysicsActor
 
-Runs physics simulation on a dedicated actor with fixed timestep.
+Runs the shared `PhysicsSimulation` (the same fixed-timestep code `PhysicsSystem` runs inline) on a dedicated actor. It is opt-in: by default the engine steps physics inline on the main actor.
 
 ### Data Flow
 
@@ -74,85 +77,97 @@ Runs physics simulation on a dedicated actor with fixed timestep.
 │   ─────────                              ────────────                        │
 │                                                                              │
 │   1. Create snapshot                                                        │
-│      PhysicsFrameInput  ──────────────▶  2. Simulate                       │
-│      • bodySnapshots[]                      • Integrate velocities         │
-│      • deltaTime                            • Integrate positions          │
-│      • gravity                              • Detect collisions            │
-│                                             • Resolve collisions           │
+│      PhysicsFrameInput  ──────────────▶  2. Simulate (fixed steps)         │
+│      • bodies [GameUUID:                    • Integrate velocities         │
+│        PhysicsBodyState]                    • Integrate positions          │
+│      • colliders [ColliderSnapshot]         • Detect collisions            │
+│      • deltaTime                            • Resolve collisions           │
+│      (gravity etc. come from the                                           │
+│       actor's PhysicsSettings)                                             │
 │                                                                              │
 │   4. Apply results      ◀──────────────  3. Return results                 │
 │      • Update transforms                    PhysicsStepResult              │
-│      • Update velocities                    • positions[]                  │
-│                                             • velocities[]                 │
-│                                             • collisionCount               │
+│      • Update velocities                    • updatedBodies                │
+│      • Report collisions                    • collisions                   │
+│        (CollisionManager.onCollision)       • simulatedTime                │
+│                                             • stepsExecuted                │
 │                                                                              │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
 ### Usage
 
-Physics simulation happens automatically when you use `RigidBody` components. The engine handles actor coordination internally.
+Physics simulation happens automatically when you use `RigidBody` components: the engine steps it each frame through `ActorCoordinator.shared.update`. By default that runs inline on the main actor; set `asyncPhysicsEnabled` to run it on `PhysicsActor` instead. `PhysicsSystem.shared.settings` (and `gravity`) apply in both modes, because `PhysicsSystem.updateAsync` pushes them to the actor before simulating.
 
 ```swift
-// Just add physics components - actors are managed automatically
+// Just add physics components - the engine steps them every frame
 let ball = createGameObject(name: "Ball")
 ball.addComponent(SphereCollider(radius: 0.5))
 ball.addComponent(RigidBody(mass: 1.0))
 
-// Physics runs on PhysicsActor automatically
+// Physics runs inline on the main actor by default.
+// Opt in to running it on PhysicsActor:
+ActorCoordinator.shared.asyncPhysicsEnabled = true
 ```
 
 ### Fixed Timestep
 
 ```swift
-// PhysicsActor simulates at fixed 60Hz regardless of frame rate
+// The simulation steps at a fixed 60Hz (PhysicsSettings.fixedDeltaTime) regardless of frame rate
 // This ensures deterministic, stable physics
 
 Frame deltaTime: 16.67ms  →  1 physics step
 Frame deltaTime: 33.33ms  →  2 physics steps
-Frame deltaTime: 50.00ms  →  3 physics steps
+Frame deltaTime: 50.00ms  →  2 physics steps  (frame time is clamped to maxDeltaTime = 1/30 s)
 
-// Accumulator pattern prevents physics from falling behind
+// Leftover time carries over in an accumulator; maxDeltaTime and
+// maxStepsPerFrame (4) keep slow frames from spiralling
 ```
 
 ---
 
 ## AssetLoadingActor
 
-Loads assets (meshes, textures) asynchronously without blocking the main thread.
+Loads mesh data (OBJ and binary STL files) off the main actor and caches it by path. It does not load textures and has no progress reporting.
 
 ### Usage
 
 ```swift
-// Load mesh asynchronously
-let mesh = await AssetLoadingActor.shared.loadMesh(from: "models/character.obj")
-
-// Load with progress callback
-let mesh = await AssetLoadingActor.shared.loadMesh(from: "models/large.obj") { progress in
-    print("Loading: \(Int(progress * 100))%")
+// Load mesh data asynchronously (non-throwing; returns AssetLoadResult<MeshData>)
+let result = await AssetLoadingActor.shared.loadMesh(from: "models/character.obj")
+switch result {
+case .success(let meshData):
+    print("Loaded \(meshData.triangleCount) triangles")
+case .failure(let error):
+    print("Failed: \(error)")
 }
 
-// Load multiple assets concurrently
-async let mesh1 = AssetLoadingActor.shared.loadMesh(from: "models/a.obj")
-async let mesh2 = AssetLoadingActor.shared.loadMesh(from: "models/b.obj")
-async let mesh3 = AssetLoadingActor.shared.loadMesh(from: "models/c.obj")
-
-let (m1, m2, m3) = await (mesh1, mesh2, mesh3)
+// Load multiple meshes in one call
+let results = await AssetLoadingActor.shared.loadMeshes(from: [
+    "models/a.obj", "models/b.obj", "models/c.obj"
+])  // [String: AssetLoadResult<MeshData>]
 ```
+
+`MeshData` is plain Sendable data, not a `Mesh`. To get something a `MeshRenderer` can draw, use `LoadableMesh`, which loads through this actor.
 
 ### In Scene Setup
 
 ```swift
 @MainActor
 public final class MyScene: GameObjectScene {
-    public override func setup() async {
-        // Load assets while showing loading screen
-        let characterMesh = await AssetLoadingActor.shared.loadMesh(from: "character.obj")
+    public override func onLoad(engine: Engine) {
+        super.onLoad(engine: engine)
         
-        // Create game object with loaded mesh
+        // LoadableMesh is a Mesh; it renders nothing until loading finishes
+        let characterMesh = LoadableMesh(path: "character.obj")
+        
+        // Create game object with the mesh
         let character = createGameObject(name: "Character")
         let renderer = character.addComponent(MeshRenderer.self)
         renderer.mesh = characterMesh
+        
+        // Load on AssetLoadingActor (or `await characterMesh.loadAsync()` from an async context)
+        characterMesh.load()
     }
 }
 ```
@@ -161,7 +176,7 @@ public final class MyScene: GameObjectScene {
 
 ## GameLogicActor
 
-Runs expensive game logic computations off the main thread.
+Runs registered game logic handlers and tasks off the main actor. `ActorCoordinator` calls it each frame (after physics) when `asyncGameLogicEnabled` is true (the default) and at least one handler or task is registered.
 
 ### Use Cases
 
@@ -169,11 +184,13 @@ Runs expensive game logic computations off the main thread.
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │                    GameLogicActor Use Cases                                  │
 │                                                                              │
-│   • AI decision making         Heavy computation that would block           │
-│   • Pathfinding                the main thread if done synchronously        │
-│   • Procedural generation                                                   │
-│   • Large-scale simulations                                                 │
-│   • Complex math operations                                                 │
+│   • Per-component updates      Handlers keyed by component type name;       │
+│     (registerHandler)          they get a GameObjectSnapshot and return     │
+│                                a TransformUpdate applied on the MainActor   │
+│   • Per-frame tasks            Arbitrary work run once per frame            │
+│     (registerTask)                                                          │
+│   • Batch AI decisions         processAIDecisions (placeholder logic:       │
+│     (processAIDecisions)       currently returns .idle for every entity)    │
 │                                                                              │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -181,14 +198,24 @@ Runs expensive game logic computations off the main thread.
 ### Usage
 
 ```swift
-// Offload expensive computation
-let result = await GameLogicActor.shared.performComputation {
-    // This runs on the GameLogicActor
-    return expensiveCalculation()
+// Per-component handler, keyed by the component's type name.
+// Runs for every active GameObject with an enabled "Spinner" component;
+// the returned TransformUpdate is applied back on the MainActor.
+await GameLogicActor.shared.registerHandler(for: "Spinner") { snapshot, deltaTime in
+    let spin = Quaternion.fromAxisAngle(axis: .up, angle: deltaTime)
+    return TransformUpdate(rotation: spin * snapshot.rotation)
 }
 
-// AI pathfinding example
-let path = await GameLogicActor.shared.findPath(from: start, to: end, grid: navGrid)
+// Custom task run once per frame
+await GameLogicActor.shared.registerTask(name: "economy") { deltaTime in
+    // Work that doesn't touch MainActor state
+}
+
+// Batch AI decisions (placeholder: every decision is currently .idle)
+let decisions = await GameLogicActor.shared.processAIDecisions(
+    entities: aiStates,          // [AIEntityState]
+    worldState: worldSnapshot    // WorldStateSnapshot
+)
 ```
 
 ---
@@ -203,23 +230,29 @@ Orchestrates updates across multiple actors, ensuring proper data flow and synch
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │                      ActorCoordinator Frame Flow                             │
 │                                                                              │
-│   1. Engine calls ActorCoordinator.update()                                 │
-│                     │                                                        │
-│   2. Create physics ├──────────────────────────────┐                        │
-│      input snapshot │                              │                        │
-│                     │                              ▼                        │
-│   3. Send to actors │                    ┌────────────────┐                 │
-│                     │                    │ PhysicsActor   │                 │
-│                     │                    │ simulate()     │                 │
-│                     │                    └───────┬────────┘                 │
-│                     │                            │                          │
-│   4. Await results  │◀───────────────────────────┘                          │
-│                     │                                                        │
-│   5. Apply results  │                                                        │
-│      to GameObjects │                                                        │
-│                     ▼                                                        │
+│   1. Engine calls ActorCoordinator.update() after the scene update          │
+│                     │                                                       │
+│   2. Step physics   ├─ inline (default): PhysicsSystem.update()             │
+│                     │                                                       │
+│                     ├─ asyncPhysicsEnabled: PhysicsSystem.updateAsync()     │
+│                     │      snapshot ──▶ ┌────────────────┐                  │
+│                     │                   │ PhysicsActor   │                  │
+│                     │                   │ simulate()     │                  │
+│                     │      results ◀────┴────────────────┘                  │
+│                     │                                                       │
+│   3. Apply physics  │  transforms, velocities, onCollision                  │
+│      results        │                                                       │
+│                     │                                                       │
+│   4. Game logic     ├─ if asyncGameLogicEnabled and handlers/tasks exist:   │
+│      pass           │      snapshots ──▶ ┌────────────────────┐             │
+│                     │                    │ GameLogicActor     │             │
+│                     │                    │ processGameObjects │             │
+│                     │      updates ◀─────┴────────────────────┘             │
+│                     │                                                       │
+│   5. Apply transform│                                                       │
+│      updates        ▼                                                       │
 │   6. Return to engine for rendering                                         │
-│                                                                              │
+│                                                                             │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -234,17 +267,18 @@ Data passed between actors must be `Sendable`:
 ```swift
 // PhysicsFrameInput is Sendable - safe to pass between actors
 public struct PhysicsFrameInput: Sendable {
-    public let bodySnapshots: [BodySnapshot]
+    public let bodies: [GameUUID: PhysicsBodyState]
+    public let colliders: [ColliderSnapshot]
     public let deltaTime: Float
-    public let gravity: Vec3d
 }
 
-// BodySnapshot is also Sendable
-public struct BodySnapshot: Sendable {
-    public let id: Int
-    public let position: Vec3d
-    public let velocity: Vec3d
-    // ... immutable snapshot data
+// PhysicsBodyState is also Sendable (a value-type snapshot)
+public struct PhysicsBodyState: Sendable {
+    public let id: GameUUID
+    public var position: Vec3d
+    public var velocity: Vec3d
+    public var rotation: Quaternion
+    // ... mass, isKinematic, accumulated force/torque, limits
 }
 ```
 
@@ -252,22 +286,24 @@ public struct BodySnapshot: Sendable {
 
 ```swift
 // PhysicsActor - isolated, only accessible via async calls
-actor PhysicsActor {
-    // All mutable state is isolated to this actor
-    private var accumulator: Float = 0
+public actor PhysicsActor {
+    // All mutable state (including the accumulator) is isolated to this actor
+    private var simulation = PhysicsSimulation()
     
     // Called from MainActor - requires await
-    func simulate(input: PhysicsFrameInput) async -> PhysicsStepResult {
+    public func simulate(input: PhysicsFrameInput) async -> PhysicsStepResult {
         // Safe - running on PhysicsActor
     }
 }
 
-// MainActor - UI and game loop
+// MainActor - game loop side
 @MainActor
-class Engine {
-    func update() async {
+public final class PhysicsSystem {
+    public func updateAsync(deltaTime: Float) async {
         // Must await to call PhysicsActor
-        let result = await physicsActor.simulate(input: physicsInput)
+        await PhysicsActor.shared.configure(settings)
+        let result = await PhysicsActor.shared.simulate(input: input)
+        // ... apply result to GameObjects
     }
 }
 ```
@@ -280,19 +316,22 @@ class Engine {
 2. **Use snapshots** - Pass immutable copies between actors, not references
 3. **Batch operations** - Send one large request instead of many small ones
 4. **Await strategically** - Don't await in tight loops
-5. **Handle errors** - Actor calls can throw, handle failures gracefully
+5. **Handle failures** - The engine's actor calls don't throw; asset loads report failures as `AssetLoadResult.failure`, so check the result
 
 ```swift
-// Good - batch physics input
+// Good - one input containing every body and collider
 let input = PhysicsFrameInput(
-    bodySnapshots: allBodies.map { $0.snapshot },
-    deltaTime: dt,
-    gravity: gravity
+    bodies: bodies,          // [GameUUID: PhysicsBodyState]
+    colliders: colliders,    // [ColliderSnapshot]
+    deltaTime: dt
 )
-let result = await physicsActor.simulate(input: input)
+let result = await PhysicsActor.shared.simulate(input: input)
 
-// Bad - individual calls per body (too much overhead)
-for body in allBodies {
-    await physicsActor.updateBody(body)  // Don't do this!
+// Bad - one call per body (actor hop overhead, bodies never see each other,
+// and every call advances the accumulator)
+for (id, body) in bodies {
+    _ = await PhysicsActor.shared.simulate(  // Don't do this!
+        input: PhysicsFrameInput(bodies: [id: body], colliders: colliders, deltaTime: dt)
+    )
 }
 ```

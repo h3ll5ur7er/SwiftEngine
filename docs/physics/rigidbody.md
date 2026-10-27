@@ -58,13 +58,15 @@ rb.mass = 1.0
 │   ● Moves via physics                  ● Moved via transform directly       │
 │                                                                              │
 │   Use for:                             Use for:                              │
-│   • Player characters                  • Floors, walls                       │
+│   • Player characters                  • Scripted movers                     │
 │   • Projectiles                        • Moving platforms                    │
 │   • Physics objects                    • Animated obstacles                  │
 │   • Debris, particles                  • Doors, elevators                    │
 │                                                                              │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
+
+Static objects such as floors and walls don't need a `RigidBody` at all: a collider without one is static. Use a kinematic body only for things you move from code.
 
 ### Dynamic Body
 
@@ -82,12 +84,15 @@ rb.isKinematic = false  // Default - responds to physics
 
 ```swift
 // Kinematic body - not affected by physics, but can affect others
+let platform = createGameObject(name: "MovingPlatform")
+platform.addComponent(BoxCollider(size: Vec3d(3, 0.5, 3)))
+
+let rb = platform.addComponent(RigidBody.self)
+rb.isKinematic = true  // Moved via transform only (mass doesn't matter)
+
+// A static floor needs no RigidBody - the collider alone is enough
 let floor = createGameObject(name: "Floor")
 floor.addComponent(PlaneCollider())
-
-let rb = floor.addComponent(RigidBody.self)
-rb.mass = 1.0  // Mass doesn't matter for kinematic
-rb.isKinematic = true  // Static - moved via transform only
 ```
 
 ## Properties
@@ -161,6 +166,8 @@ rb.maxAngularVelocity = 5.0
 ```
 
 ### Forces (Continuous)
+
+Forces accumulate until the next fixed physics step, which applies them for that one step (Δv = F / m × `fixedDeltaTime`) and then clears them. On a frame with no physics step they stay pending, so nothing is lost. Call `addForce` every frame for a continuous effect.
 
 ```swift
 // Apply force each frame (e.g., in update)

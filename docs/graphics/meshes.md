@@ -15,7 +15,6 @@ Meshes define the 3D geometry of objects in your scene.
 │   │   │ pos     │  │ pos     │  │ pos     │  │ pos     │           │   │
 │   │   │ normal  │  │ normal  │  │ normal  │  │ normal  │           │   │
 │   │   │ uv      │  │ uv      │  │ uv      │  │ uv      │           │   │
-│   │   │ color   │  │ color   │  │ color   │  │ color   │           │   │
 │   │   └─────────┘  └─────────┘  └─────────┘  └─────────┘           │   │
 │   └─────────────────────────────────────────────────────────────────┘   │
 │                                                                          │
@@ -36,10 +35,13 @@ Meshes define the 3D geometry of objects in your scene.
 public struct Vertex {
     public var position: Vec3d   // 3D position
     public var normal: Vec3d     // Surface normal (for lighting)
-    public var uv: Vec2d         // Texture coordinates
-    public var color: Color      // Vertex color
+    public var uv: Vec2d         // Texture coordinates (not sampled by the renderer yet)
+    
+    public init(position: Vec3d, normal: Vec3d = .zero, uv: Vec2d = .zero)
 }
 ```
+
+Vertices have no color; a mesh's color comes from its renderer's `Material`.
 
 ## Built-in Primitive Meshes
 
@@ -121,15 +123,18 @@ renderer.mesh = billboard
 ## The Mesh Protocol
 
 ```swift
-public protocol Mesh: AnyObject {
+public protocol Mesh: AnyObject, Sendable {
     /// All vertices in the mesh
     var vertices: [Vertex] { get }
     
     /// Triangle indices (every 3 indices = 1 triangle)
     var indices: [UInt32] { get }
     
-    /// Axis-aligned bounding box
+    /// Axis-aligned bounding box (local space)
     var bounds: Bounds { get }
+    
+    /// Number of triangles (default implementation: indices.count / 3)
+    var triangleCount: Int { get }
 }
 ```
 
@@ -138,8 +143,7 @@ public protocol Mesh: AnyObject {
 ### Simple Custom Mesh
 
 ```swift
-@MainActor
-public final class TriangleMesh: Mesh {
+public final class TriangleMesh: Mesh, @unchecked Sendable {
     public let vertices: [Vertex]
     public let indices: [UInt32]
     public let bounds: Bounds
@@ -150,20 +154,17 @@ public final class TriangleMesh: Mesh {
             Vertex(
                 position: Vec3d(0, 1, 0),      // Top
                 normal: Vec3d(0, 0, 1),        // Facing camera
-                uv: Vec2d(0.5, 0),
-                color: .red
+                uv: Vec2d(0.5, 0)
             ),
             Vertex(
                 position: Vec3d(-1, -1, 0),    // Bottom left
                 normal: Vec3d(0, 0, 1),
-                uv: Vec2d(0, 1),
-                color: .green
+                uv: Vec2d(0, 1)
             ),
             Vertex(
                 position: Vec3d(1, -1, 0),     // Bottom right
                 normal: Vec3d(0, 0, 1),
-                uv: Vec2d(1, 1),
-                color: .blue
+                uv: Vec2d(1, 1)
             )
         ]
         
@@ -171,7 +172,7 @@ public final class TriangleMesh: Mesh {
         indices = [0, 1, 2]
         
         // Calculate bounds
-        bounds = Bounds(
+        bounds = Bounds.fromMinMax(
             min: Vec3d(-1, -1, 0),
             max: Vec3d(1, 1, 0)
         )
@@ -182,8 +183,7 @@ public final class TriangleMesh: Mesh {
 ### Procedural Mesh Example: Pyramid
 
 ```swift
-@MainActor
-public final class PyramidMesh: Mesh {
+public final class PyramidMesh: Mesh, @unchecked Sendable {
     public let vertices: [Vertex]
     public let indices: [UInt32]
     public let bounds: Bounds
@@ -209,9 +209,9 @@ public final class PyramidMesh: Mesh {
             let normal = (p1 - p0).cross(p2 - p0).normalized
             let baseIdx = UInt32(verts.count)
             
-            verts.append(Vertex(position: p0, normal: normal, uv: .zero, color: .white))
-            verts.append(Vertex(position: p1, normal: normal, uv: .zero, color: .white))
-            verts.append(Vertex(position: p2, normal: normal, uv: .zero, color: .white))
+            verts.append(Vertex(position: p0, normal: normal, uv: .zero))
+            verts.append(Vertex(position: p1, normal: normal, uv: .zero))
+            verts.append(Vertex(position: p2, normal: normal, uv: .zero))
             
             inds.append(contentsOf: [baseIdx, baseIdx + 1, baseIdx + 2])
         }
@@ -228,7 +228,7 @@ public final class PyramidMesh: Mesh {
         
         self.vertices = verts
         self.indices = inds
-        self.bounds = Bounds(
+        self.bounds = Bounds.fromMinMax(
             min: Vec3d(-half, 0, -half),
             max: Vec3d(half, height, half)
         )
@@ -259,13 +259,26 @@ Indices: [0, 2, 1] = Clockwise = Back face
 Axis-Aligned Bounding Box for frustum culling:
 
 ```swift
-public struct Bounds {
-    public var min: Vec3d  // Minimum corner
-    public var max: Vec3d  // Maximum corner
+public struct Bounds: Sendable {
+    public var center: Vec3d  // Center of the box
+    public var size: Vec3d    // Full size on each axis
     
-    public var center: Vec3d { (min + max) * 0.5 }
-    public var size: Vec3d { max - min }
+    public var min: Vec3d { get }      // center - size / 2
+    public var max: Vec3d { get }      // center + size / 2
+    public var extents: Vec3d { get }  // size / 2
+    
+    public init(center: Vec3d = .zero, size: Vec3d = .one)
+    public static func fromMinMax(min: Vec3d, max: Vec3d) -> Bounds
+    
+    public func contains(_ point: Vec3d) -> Bool
+    public func intersects(_ other: Bounds) -> Bool
 }
+```
+
+```swift
+// Two ways to build the same bounds
+let a = Bounds(center: Vec3d(0, 0.5, 0), size: Vec3d(1, 1, 1))
+let b = Bounds.fromMinMax(min: Vec3d(-0.5, 0, -0.5), max: Vec3d(0.5, 1, 0.5))
 ```
 
 ```
@@ -314,7 +327,7 @@ renderer2.mesh = PlaneMesh(width: 10, depth: 2)  // Different size
 
 ## Performance Tips
 
-1. **Share meshes** when possible - primitives are singletons
+1. **Share meshes** when possible - primitives provide `.shared` instances
 2. **Use appropriate complexity** - don't use high-poly when low-poly works
 3. **Ensure valid bounds** - bad bounds = bad frustum culling
 4. **Pre-calculate normals** - don't compute per-frame

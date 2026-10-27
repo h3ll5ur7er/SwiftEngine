@@ -43,15 +43,14 @@ let normalized = a.normalized   // Vec2d(0.6, 0.8)
 let dot = a.dot(b)              // 3.0
 let cross = a.cross(b)          // 4.0 (2D cross = scalar)
 let dist = a.distance(to: b)    // 4.47...
-let perpCW = a.perpendicularCW  // Vec2d(4, -3)
-let perpCCW = a.perpendicularCCW // Vec2d(-4, 3)
+let perp = a.perpendicular      // Vec2d(-4, 3) (rotated 90° counter-clockwise)
 
 // Interpolation
 let lerped = a.lerp(to: b, t: 0.5)  // Vec2d(2, 2)
 
 // Angles
-let angle = Vec2d.fromAngle(Float.pi / 4)  // Vec2d(0.707, 0.707)
-let angleBetween = a.angle(to: b)          // Angle in radians
+let fromAngle = Vec2d.fromAngle(Float.pi / 4)  // Vec2d(0.707, 0.707)
+let angle = a.angle                            // atan2(y, x) in radians (0.927...)
 ```
 
 ## Vec3d
@@ -64,12 +63,11 @@ let b = Vec3d(4, 5, 6)
 // Static vectors
 let zero = Vec3d.zero       // (0, 0, 0)
 let one = Vec3d.one         // (1, 1, 1)
-let up = Vec3d.up           // (0, 1, 0)
-let down = Vec3d.down       // (0, -1, 0)
-let right = Vec3d.right     // (1, 0, 0)
-let left = Vec3d.left       // (-1, 0, 0)
+let up = Vec3d.up           // (0, 1, 0)  (same as .unitY)
+let right = Vec3d.right     // (1, 0, 0)  (same as .unitX)
 let forward = Vec3d.forward // (0, 0, -1)
-let back = Vec3d.back       // (0, 0, 1)
+let unitZ = Vec3d.unitZ     // (0, 0, 1)
+// No down/left/back constants - negate instead, e.g. -Vec3d.up
 
 // Arithmetic
 let sum = a + b           // Vec3d(5, 7, 9)
@@ -139,18 +137,18 @@ The workhorse for 3D graphics:
 let identity = Mat4d.identity
 
 // Translation
-let translate = Mat4d.translation(Vec3d(10, 0, 0))
+let translate = Mat4d.translate(vec: Vec3d(10, 0, 0))  // or .translate(x:y:z:)
 
 // Rotation (individual axes)
-let rotX = Mat4d.rotationX(angle: Float.pi / 4)  // 45° around X
-let rotY = Mat4d.rotationY(angle: Float.pi / 4)  // 45° around Y
-let rotZ = Mat4d.rotationZ(angle: Float.pi / 4)  // 45° around Z
+let rotX = Mat4d.rotX(angle: Float.pi / 4)  // 45° around X
+let rotY = Mat4d.rotY(angle: Float.pi / 4)  // 45° around Y
+let rotZ = Mat4d.rotZ(angle: Float.pi / 4)  // 45° around Z
 
-// Rotation (arbitrary axis)
-let rot = Mat4d.rotation(axis: Vec3d.up, angle: Float.pi / 2)
+// Rotation (arbitrary axis) - there's no Mat4d factory; go through a quaternion
+let rot = Quaternion.fromAxisAngle(axis: Vec3d.up, angle: Float.pi / 2).toMat4d
 
 // Scale
-let scale = Mat4d.scale(Vec3d(2, 2, 2))  // Double size
+let scale = Mat4d.scale(sx: 2, sy: 2, sz: 2)  // Double size (or .scale(2))
 
 // Combine transformations
 let model = translate * rotY * scale  // Scale, then rotate, then translate
@@ -171,8 +169,8 @@ let model = translate * rotY * scale  // Scale, then rotate, then translate
 ### Transforming Points and Directions
 
 ```swift
-let matrix = Mat4d.translation(Vec3d(10, 0, 0)) * 
-             Mat4d.rotationY(angle: Float.pi / 2)
+let matrix = Mat4d.translate(vec: Vec3d(10, 0, 0)) * 
+             Mat4d.rotY(angle: Float.pi / 2)
 
 // Transform a point (includes translation)
 let worldPoint = matrix.transformPoint(Vec3d(0, 0, 0))  // (10, 0, 0)
@@ -267,10 +265,10 @@ let fromTo = Quaternion.fromTo(
 let combined = rotB * rotA  // Apply A, then B
 
 // Rotate a vector
-let rotatedVec = quaternion.rotate(Vec3d(1, 0, 0))
+let rotatedVec = quaternion * Vec3d(1, 0, 0)
 
 // Interpolate (smooth rotation)
-let smooth = Quaternion.slerp(from: q1, to: q2, t: 0.5)
+let smooth = q1.slerp(to: q2, t: 0.5)
 
 // Inverse (opposite rotation)
 let inverse = quaternion.inverse
@@ -280,10 +278,11 @@ let axis = quaternion.axis
 let angle = quaternion.angle
 
 // Convert to Euler angles
-let euler = quaternion.eulerAngles  // Vec3d(pitch, yaw, roll)
+let euler = quaternion.eulerAngles  // (pitch: Float, yaw: Float, roll: Float) tuple
+let yaw = euler.yaw
 
 // Convert to matrix
-let matrix = quaternion.toMatrix  // Mat4d
+let matrix = quaternion.toMat4d  // Mat4d (or .toMat3d)
 ```
 
 ### Why Quaternions?
@@ -325,8 +324,7 @@ let steel = Color.steelBlue
 
 // Operations
 let lighter = color.scaled(by: 1.5)
-let lerped = Color.lerp(from: red, to: blue, t: 0.5)
-let blended = color.blendOver(background)
+let lerped = Color.lerp(red, blue, t: 0.5)
 ```
 
 ## Common Patterns

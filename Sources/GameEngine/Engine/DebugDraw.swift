@@ -13,13 +13,13 @@ public final class DebugDraw {
     /// Whether to draw collider wireframes
     public var showColliders: Bool = true
     
-    /// Whether to also show the AABB (axis-aligned bounding box) used for collision detection
+    /// Whether to also show each box collider's AABB (axis-aligned bounding box)
     public var showAABB: Bool = true
     
     /// Color for box collider wireframes (the actual rotated shape)
     public var boxColliderColor: Color = Color(r: 0, g: 255, b: 0)
     
-    /// Color for AABB wireframes (the collision detection bounds)
+    /// Color for AABB wireframes
     public var aabbColor: Color = Color(r: 255, g: 255, b: 0)
     
     /// Color for sphere collider wireframes

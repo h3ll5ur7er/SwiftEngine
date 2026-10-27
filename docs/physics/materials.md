@@ -78,7 +78,7 @@ material.bounciness = 0.95  // Super ball - very bouncy
 
 ### Density
 
-Mass per unit volume (kg/m³), used to calculate mass from collider volume:
+Mass per unit volume (kg/m³), used by a collider's `calculatedMass` helper (density × collider volume):
 
 ```
 Mass = Density × Volume
@@ -159,7 +159,12 @@ collider.material = customMaterial
 
 ## Combine Modes
 
-When two objects collide, their material properties are combined:
+When two objects collide, their material properties are combined. Each material's own mode is applied to the pair of values, and the two results are reduced:
+
+- **Friction** uses the *lower* of the two results (`PhysicsMaterial.combinedFriction`)
+- **Bounciness** uses the *higher* of the two results (`PhysicsMaterial.combinedBounciness`)
+
+So a friction mode only wins if it produces the lowest value: `.minimum` on one material is enough for "slippery wins", but `.maximum` friction only takes effect when *both* materials use it. For bounciness it's the reverse: `.maximum` on one material wins, while `.minimum` needs both.
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
@@ -181,18 +186,18 @@ var material = PhysicsMaterial.default
 
 // How friction is combined between two colliding objects
 material.frictionCombine = .average   // Default
-material.frictionCombine = .minimum   // Use lower friction (slippery wins)
-material.frictionCombine = .maximum   // Use higher friction (sticky wins)
-material.frictionCombine = .multiply  // Both affect result
+material.frictionCombine = .minimum   // Use lower friction (slippery wins, even if only one material uses it)
+material.frictionCombine = .maximum   // Use higher friction - only if BOTH materials use .maximum
+material.frictionCombine = .multiply  // Both affect result (a × b)
 
 // How bounciness is combined
 material.bounceCombine = .average     // Default
-material.bounceCombine = .maximum     // More bouncy result
+material.bounceCombine = .maximum     // More bouncy result (wins if either material uses it)
 ```
 
 ## Mass Calculation
 
-When a RigidBody is attached, mass can be calculated from the collider's volume and material's density:
+Colliders expose `calculatedMass` (the material's density × the collider's volume) as a helper. It is **never applied automatically**: `RigidBody.mass` defaults to 1.0 whatever the material, so assign it yourself if you want density-based mass. (A `PlaneCollider`'s volume, and so its calculated mass, is infinite.)
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
@@ -217,8 +222,11 @@ When a RigidBody is attached, mass can be calculated from the collider's volume 
 // Get calculated mass from collider
 let calculatedMass = collider.calculatedMass
 
-// Or set mass directly on RigidBody
-rigidBody.mass = 1.0  // Override calculated mass
+// Opt in to density-based mass
+rigidBody.mass = collider.calculatedMass
+
+// Or set mass directly on RigidBody (default is 1.0)
+rigidBody.mass = 1.0
 ```
 
 ## Common Scenarios
@@ -240,8 +248,7 @@ rb.mass = 0.1
 let iceFloor = createGameObject(name: "IceRink")
 let collider = iceFloor.addComponent(PlaneCollider())
 collider.material = .ice
-
-iceFloor.addComponent(RigidBody(mass: 1.0, isKinematic: true))
+// No RigidBody needed - a collider on its own is static
 ```
 
 ### Heavy Metal Crate
@@ -269,15 +276,14 @@ var bouncyMaterial = PhysicsMaterial(
 )
 bouncyMaterial.bounceCombine = .maximum  // Always bouncy
 collider.material = bouncyMaterial
-
-trampoline.addComponent(RigidBody(mass: 1.0, isKinematic: true))
+// No RigidBody needed - a collider on its own is static
 ```
 
 ## Best Practices
 
 1. **Use presets** for common surfaces (rubber, ice, metal)
 2. **Keep bounciness ≤ 1.0** for realistic physics (> 1.0 adds energy)
-3. **Set mass directly** on RigidBody rather than relying on density
-4. **Use `.minimum` friction combine** for "slippery always wins" behavior
+3. **Set mass directly** on RigidBody - density only matters if you assign `calculatedMass` yourself
+4. **Use `.minimum` friction combine** for "slippery always wins" behavior (`.maximum` friction needs both materials to opt in)
 5. **Use `.maximum` bounce combine** for "bouncy always wins" behavior
 6. **Test your materials** - small changes can have big effects

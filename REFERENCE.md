@@ -648,7 +648,7 @@ public struct Mat4d {
     
     public static func translate(vec: Vec3d) -> Mat4d
     public static func scale(sx: Float, sy: Float, sz: Float) -> Mat4d
-    public static func rotateX/Y/Z(angle: Float) -> Mat4d
+    public static func rotX/rotY/rotZ(angle: Float) -> Mat4d
     public static func perspective(fovY: Float, aspect: Float, near: Float, far: Float) -> Mat4d
     public static func orthographic(left: Float, right: Float, bottom: Float, top: Float, near: Float, far: Float) -> Mat4d
     public static func lookAt(eye: Vec3d, target: Vec3d, up: Vec3d) -> Mat4d

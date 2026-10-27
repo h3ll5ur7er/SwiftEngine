@@ -16,13 +16,15 @@ Materials define the visual appearance of surfaces in your scene.
 │                                                                          │
 │  Lighting Properties (PBR)          Other                                │
 │  ─────────────────────              ─────                                │
-│  roughness: Float                   cutoffThreshold: Float               │
+│  roughness: Float                   alphaCutoff: Float                   │
 │  metallic: Float                                                         │
 │  emissionColor: Color                                                    │
 │  emissionIntensity: Float                                                │
 │                                                                          │
 └─────────────────────────────────────────────────────────────────────────┘
 ```
+
+> **What the renderer uses:** `color` (RGB), `shadingModel`, `cullMode`, and `renderMode` (wireframe vs filled). `mainTexture`, `opacity`, `alphaCutoff`, `roughness`, `metallic`, `emissionColor` and `emissionIntensity` are stored on the material but **not used by the renderer**: textures aren't sampled, and `.transparent` / `.cutout` materials render as opaque.
 
 ## Creating Materials
 
@@ -38,11 +40,13 @@ let concrete = Material.matte(Color(gray: 128))
 // Metallic surface
 let gold = Material.metallic(Color(r: 255, g: 215, b: 0), roughness: 0.3)
 
-// Transparent
+// Transparent (opacity is stored, but currently renders opaque)
 let glass = Material.transparent(.white, opacity: 0.3)
 
-// Emissive (glowing)
+// Emissive - sets emission and .unlit shading; renders as flat unlit color
 let neon = Material.emissive(.cyan, intensity: 2.0)
+
+// Note: roughness, metallic, opacity and emission don't affect rendering yet
 ```
 
 ### Manual Creation
@@ -69,8 +73,8 @@ material.renderMode = .opaque
 public enum ShadingModel {
     case unlit    // No lighting calculations
     case flat     // One color per face
-    case gouraud  // Smooth vertex interpolation (future)
-    case pbr      // Physically-based rendering (future)
+    case gouraud  // Per-vertex lighting, interpolated across each triangle
+    case pbr      // Physically-based rendering (future; shaded like .flat)
 }
 ```
 
@@ -114,6 +118,15 @@ let material = Material.solid(.blue)
 material.shadingModel = .flat  // Responds to DirectionalLight
 ```
 
+### Gouraud Shading
+
+Lights each vertex using its normal and interpolates the colors across the triangle for a smooth look. It only differs from flat shading on meshes whose vertices carry smooth (shared or averaged) normals; `CubeMesh` has per-face normals, so it looks the same either way.
+
+```swift
+let material = Material.solid(.orange)
+material.shadingModel = .gouraud  // Per-vertex lighting
+```
+
 ## Cull Modes
 
 ```swift
@@ -153,8 +166,8 @@ leafMaterial.cullMode = .none
 ```swift
 public enum RenderMode {
     case opaque      // Solid, no transparency
-    case transparent // Alpha blending
-    case cutout      // Binary transparency (alpha test)
+    case transparent // Alpha blending (not implemented - renders as opaque)
+    case cutout      // Binary transparency (not implemented - renders as opaque)
     case wireframe   // Lines only (debug)
 }
 ```
@@ -170,22 +183,22 @@ wall.renderMode = .opaque
 
 ### Transparent
 
-Alpha blending for glass, water, etc.:
+Intended for alpha blending (glass, water, etc.), but not implemented yet: the renderer ignores `opacity` and draws these materials as opaque. There is no blending or sorting.
 
 ```swift
 let glass = Material.transparent(.white, opacity: 0.3)
 glass.renderMode = .transparent
-// Note: Transparent objects need special sorting
+// Note: currently renders as an opaque white surface
 ```
 
 ### Cutout
 
-Binary transparency - pixels are either fully visible or invisible:
+Intended for binary transparency (pixels either fully visible or invisible), but not implemented yet: no alpha test is performed and cutout materials render as opaque.
 
 ```swift
 let foliage = Material()
 foliage.renderMode = .cutout
-foliage.cutoffThreshold = 0.5  // Alpha < 0.5 = invisible
+foliage.alphaCutoff = 0.5  // Stored, but not used by the renderer yet
 ```
 
 ### Wireframe
@@ -247,20 +260,21 @@ ground.shadingModel = .flat
 ```swift
 let metal = Material.metallic(Color(gray: 200), roughness: 0.2)
 metal.shadingModel = .flat
+// metallic/roughness are stored but not used by the renderer yet
 ```
 
 ### Glowing Object
 
 ```swift
 let glow = Material.emissive(.cyan, intensity: 2.0)
-glow.shadingModel = .unlit  // Emissive ignores external lighting
+glow.shadingModel = .unlit  // Already set by emissive(); emission intensity isn't rendered
 ```
 
 ### Glass/Window
 
 ```swift
 let glass = Material.transparent(Color(r: 200, g: 220, b: 255), opacity: 0.3)
-glass.cullMode = .none  // See through from both sides
+glass.cullMode = .none  // Render both sides (still opaque - transparency isn't implemented)
 ```
 
 ### Debug/Wireframe
@@ -297,16 +311,16 @@ renderer.color = .green  // Same as renderer.material.color = .green
 
 1. **Reuse materials** when possible - multiple renderers can share one material
 2. **Use `.unlit`** for UI elements and skyboxes
-3. **Use `.flat`** for most 3D objects with current renderer
+3. **Use `.flat`** for a low-poly look, `.gouraud` for smooth shading on meshes with smooth normals
 4. **Set `.cullMode = .none`** for thin objects like leaves, grass
-5. **Keep `.opacity = 1`** unless you need transparency (faster rendering)
+5. **Don't rely on textures, opacity or PBR properties** - the renderer currently ignores them
 
 ```swift
 // Shared material pattern
 class Materials {
     static let redMetal = Material.metallic(.red, roughness: 0.3)
     static let grayMatte = Material.matte(Color(gray: 128))
-    static let debug = Material.wireframe(.green)
+    static let debug = Material.wireframe  // Built-in white wireframe material (a static property)
 }
 
 // Usage

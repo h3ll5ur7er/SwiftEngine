@@ -20,13 +20,17 @@ GameEngine includes a built-in physics simulation with rigid body dynamics, coll
 │           ▼              └───────────────┘      └───────────────┘          │
 │  ┌─────────────────┐                                                        │
 │  │CollisionManager │    ┌─────────────────┐                                │
-│  │ (Detection)     │───▶│ CollisionInfo   │                                │
+│  │ (onCollision)   │───▶│ CollisionInfo   │                                │
 │  └─────────────────┘    │ • contactPoint  │                                │
 │                         │ • normal        │                                │
 │                         │ • penetration   │                                │
 │                         └─────────────────┘                                │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
+
+`PhysicsSystem.shared` gathers snapshots of every `RigidBody` and enabled collider, runs the fixed-timestep `PhysicsSimulation` (which does detection and response), writes positions and velocities back, and reports each colliding pair through `CollisionManager.shared.onCollision`. `CollisionManager` itself is only the collider registry plus that callback.
+
+The engine steps physics every frame via `ActorCoordinator.shared.update`, after the scene update and before rendering. It runs inline on the main actor by default; set `ActorCoordinator.shared.asyncPhysicsEnabled = true` to run the same simulation on `PhysicsActor` (see [Actors](../architecture/actors.md)).
 
 ## Quick Start
 
@@ -48,11 +52,10 @@ collider.size = Vec3d(1, 1, 1)
 let rigidBody = cube.addComponent(RigidBody.self)
 rigidBody.mass = 1.0
 
-// Create a floor (static/kinematic)
+// Create a floor (static: a collider without a RigidBody never moves)
 let floor = createGameObject(name: "Floor")
 floor.addComponent(MeshRenderer(mesh: PlaneMesh(width: 20, depth: 20), color: .gray))
 floor.addComponent(PlaneCollider())
-floor.addComponent(RigidBody(mass: 1.0, isKinematic: true))  // Static floor
 ```
 
 ## Physics Pipeline
@@ -90,22 +93,27 @@ Physics uses a fixed timestep (60Hz by default) for deterministic simulation:
 │     ▼                ▼                ▼                                      │
 │  ┌──────────────────────────────────────────────────────────┐               │
 │  │              Accumulator-based stepping                   │               │
-│  │  accumulator += dt                                        │               │
-│  │  while accumulator >= fixedDt:                           │               │
+│  │  accumulator += min(dt, maxDeltaTime)   // cap: 33ms     │               │
+│  │  while accumulator >= fixedDt                            │               │
+│  │        && steps < maxStepsPerFrame:      // max 4        │               │
 │  │      simulate(fixedDt)    // Always 16.67ms (60Hz)       │               │
 │  │      accumulator -= fixedDt                              │               │
+│  │  if accumulator > fixedDt * maxStepsPerFrame:            │               │
+│  │      accumulator = 0      // drop time we can't catch up │               │
 │  └──────────────────────────────────────────────────────────┘               │
 │                                                                              │
 │  Result: Consistent physics regardless of frame rate                        │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
+These values live in `PhysicsSettings` (`fixedDeltaTime` 1/60, `maxDeltaTime` 1/30, `maxStepsPerFrame` 4, `gravity`, `contactAngularResponse` 0), exposed as `PhysicsSystem.shared.settings`. A 50ms frame is clamped to 33ms and runs 2 steps.
+
 ## Components Overview
 
 | Component | Purpose |
 |-----------|---------|
 | `RigidBody` | Enables physics simulation (mass, velocity, forces) |
-| `BoxCollider` | Axis-aligned box collision shape |
+| `BoxCollider` | Axis-aligned box collision shape (rotation ignored) |
 | `SphereCollider` | Spherical collision shape |
 | `PlaneCollider` | Infinite plane (floors, walls) |
 | `PhysicsMaterial` | Surface properties (friction, bounciness) |
@@ -140,6 +148,8 @@ let trigger = cube.addComponent(BoxCollider.self)
 trigger.isTrigger = true  // No collision response, just detection
 ```
 
+Trigger overlaps are reported through `CollisionManager.shared.onCollision` like any other pair, but are never resolved. Two triggers don't report against each other.
+
 ## PhysicsSystem API
 
 ```swift
@@ -151,19 +161,28 @@ public final class PhysicsSystem {
     /// Enable/disable physics globally
     public var isEnabled: Bool
     
-    /// Gravity vector (default: 0, -9.81, 0)
+    /// Simulation parameters (timestep, step cap, gravity, contactAngularResponse)
+    public var settings: PhysicsSettings
+    
+    /// Gravity vector (default: 0, -9.81, 0) - shorthand for settings.gravity
     public var gravity: Vec3d
     
     /// Statistics
     public var collisionsThisFrame: Int { get }
     public var stepsThisFrame: Int { get }
+    public var waitTimeMs: Double { get }
     public var bodyCount: Int { get }
+    public var activeBodyCount: Int { get }   // non-kinematic bodies
+    
+    /// Step the simulation (called by the engine via ActorCoordinator)
+    public func update(deltaTime: Float)              // inline on the main actor
+    public func updateAsync(deltaTime: Float) async   // on PhysicsActor, using these settings
     
     /// Manual registration (usually automatic via RigidBody component)
     public func register(_ rigidBody: RigidBody)
     public func unregister(_ rigidBody: RigidBody)
     
-    /// Clear all physics state
+    /// Clear all registered bodies and the accumulator
     public func clear()
 }
 ```
@@ -199,10 +218,12 @@ CollisionManager.shared.onCollision = { colliderA, colliderB, info in
 }
 ```
 
+The callback fires once per colliding pair per frame (triggers included), after results are applied. `info.normal` points from `colliderA` toward `colliderB`, and `info.other` is `colliderB`.
+
 ## Best Practices
 
 1. **Always add a RigidBody** for dynamic objects that should be affected by physics
-2. **Use `isKinematic = true`** for static objects like floors and walls
+2. **Leave the RigidBody off static objects** like floors and walls - a collider alone is static. Use `isKinematic = true` only for bodies you move from code (e.g. moving platforms)
 3. **Match collider size to visual mesh** for accurate collisions
 4. **Use `PlaneCollider`** for infinite surfaces (more efficient than large boxes)
 5. **Keep mass realistic** - extreme mass ratios can cause instability

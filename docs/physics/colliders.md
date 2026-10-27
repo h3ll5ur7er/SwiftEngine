@@ -1,6 +1,6 @@
 # Colliders
 
-Colliders define the shape used for collision detection. A GameObject needs a collider to participate in physics interactions.
+Colliders define the shape used for collision detection. A GameObject needs a collider to participate in physics interactions. A collider without a `RigidBody` is static: other bodies collide with it, but it never moves.
 
 ## Overview
 
@@ -32,7 +32,7 @@ All colliders share these properties:
 // Whether this is a trigger (detects overlap, no collision response)
 collider.isTrigger = false
 
-// Offset from GameObject center
+// Offset from GameObject position (in world axes; the collider follows its body)
 collider.center = Vec3d(0, 0.5, 0)  // Shift collider up
 
 // Collision layer (0 collides with everything)
@@ -46,7 +46,7 @@ collider.material = PhysicsMaterial.rubber
 
 ## BoxCollider
 
-Axis-aligned bounding box (AABB) collider.
+Axis-aligned bounding box (AABB) collider. The physics simulation ignores the GameObject's rotation: the box always collides as an axis-aligned box of `halfExtents` around its world center.
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
@@ -96,11 +96,13 @@ box.halfExtents = Vec3d(1, 0.5, 1.5)
 let volume = box.volume  // width * height * depth
 
 // World-space corners (for debug/visualization)
-let corners = box.worldCorners  // [Vec3d] - 8 corners
+let corners = box.worldCorners  // [Vec3d] - 8 corners, rotated by the transform
 
-// AABB bounds in world space
+// AABB of the rotated corners in world space
 let min = box.worldMin
 let max = box.worldMax
+// Note: these three include transform rotation, but the physics
+// simulation does not - it always uses the unrotated box
 ```
 
 ### Common Sizes
@@ -223,10 +225,11 @@ let wall = floor.addComponent(PlaneCollider(normal: Vec3d(1, 0, 0)))  // Facing 
 ### Properties
 
 ```swift
-// Normal direction (automatically normalized)
+// Normal direction in local space
+// (only init(normal:distance:) normalizes it; normalize it yourself when assigning)
 plane.normal = Vec3d(0, 1, 0)  // Points up
 
-// Distance along normal from transform origin
+// Distance along normal from transform origin (offsets the plane along its normal)
 plane.distance = 0
 
 // World-space normal (accounts for transform rotation)
@@ -301,9 +304,9 @@ playerCollider.layer = 1
 // Enemy - collides with environment (layer 0) and players (layer 1)
 enemyCollider.layer = 1
 
-// Projectile - only collides with enemies (layer 2)
+// Projectile - collides with environment (layer 0) and other layer-2 colliders only.
+// A collider has a single layer, so it won't hit the layer-1 enemies above.
 projectileCollider.layer = 2
-enemyCollider.layer = 2  // Enemies also on layer 2 to be hit
 
 // Environment - collides with everything (layer 0)
 floorCollider.layer = 0
@@ -322,8 +325,13 @@ let triggerZone = createGameObject(name: "TriggerZone")
 let collider = triggerZone.addComponent(SphereCollider(radius: 5.0))
 collider.isTrigger = true
 
-// Still needs a RigidBody to be detected
-triggerZone.addComponent(RigidBody(mass: 1.0, isKinematic: true))
+// No RigidBody needed - overlaps are reported through onCollision
+// (once per overlapping pair per frame), but never resolved
+CollisionManager.shared.onCollision = { a, b, info in
+    if a === collider || b === collider {
+        print("Something entered the trigger zone")
+    }
+}
 ```
 
 ### Use Cases

@@ -1,6 +1,6 @@
 # Asset Loading
 
-GameEngine supports loading external assets like meshes and textures asynchronously.
+GameEngine supports loading external meshes (OBJ and binary STL) asynchronously. BMP images can be loaded into a `Texture` synchronously, but the 3D renderer doesn't sample textures yet.
 
 ## Overview
 
@@ -9,39 +9,52 @@ GameEngine supports loading external assets like meshes and textures asynchronou
 │                         Asset Loading System                                 │
 │                                                                              │
 │   ┌─────────────────────────────────────────────────────────────────────┐   │
-│   │  AssetLoadingActor (dedicated thread)                                │   │
+│   │  AssetLoadingActor (Swift actor)                                     │   │
 │   │                                                                      │   │
-│   │  loadMesh(from: path)      ──▶  Parse file                         │   │
-│   │                            ──▶  Build vertex data                   │   │
-│   │                            ──▶  Calculate bounds                    │   │
-│   │                            ──▶  Return Mesh                         │   │
+│   │  loadMesh(from: path)      ──▶  Check cache                         │   │
+│   │                            ──▶  Parse file (.obj / .stl)            │   │
+│   │                            ──▶  Build vertex data + bounds          │   │
+│   │                            ──▶  Return AssetLoadResult<MeshData>    │   │
 │   │                                                                      │   │
-│   │  loadTexture(from: path)   ──▶  Read image file                    │   │
-│   │                            ──▶  Decode pixels                       │   │
-│   │                            ──▶  Return Texture                      │   │
+│   │  loadMeshes(from: paths)   ──▶  [path: AssetLoadResult<MeshData>]   │   │
 │   └─────────────────────────────────────────────────────────────────────┘   │
 │                                                                              │
 │   Benefits:                                                                  │
-│   • Non-blocking - main thread stays responsive                             │
-│   • Progress tracking - monitor load progress                               │
-│   • Concurrent - load multiple assets in parallel                           │
+│   • Non-blocking - parsing runs off the main actor                          │
+│   • Cached - loading the same path again returns the cached data            │
+│   • Batch - loadMeshes(from:) loads a list of paths in one call             │
 │                                                                              │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## LoadableMesh Protocol
+## LoadableMesh
 
-For meshes that can be loaded from files:
+`AssetLoadingActor` returns plain `MeshData`, which is not a `Mesh`. `LoadableMesh` is a `Mesh` class that loads its file through the actor, so you can assign it to a `MeshRenderer` right away (it renders nothing until loaded):
 
 ```swift
-public protocol LoadableMesh: Mesh {
-    /// Load mesh from file at path
-    static func load(from path: String) async throws -> Self
+@MainActor
+public final class LoadableMesh: Mesh {
+    public enum LoadState { case notLoaded, loading, loaded, failed(String) }
     
-    /// Load with progress callback
-    static func load(from path: String, progress: @escaping (Float) -> Void) async throws -> Self
+    public let path: String
+    public private(set) var loadState: LoadState
+    public var isLoaded: Bool { get }
+    
+    public var onLoaded: (() -> Void)?
+    public var onFailed: ((String) -> Void)?
+    
+    public init(path: String)
+    
+    /// Start loading in a Task and return immediately
+    public func load()
+    
+    /// Load and wait for completion
+    public func loadAsync() async
+    
+    /// Load several meshes; returns one LoadableMesh per path
+    public static func preloadAll(_ paths: [String]) async -> [String: LoadableMesh]
 }
 ```
 
@@ -52,37 +65,44 @@ public protocol LoadableMesh: Mesh {
 ### Basic Loading
 
 ```swift
-// Load mesh asynchronously
-do {
-    let mesh = try await AssetLoadingActor.shared.loadMesh(from: "models/character.obj")
-    
-    let renderer = gameObject.addComponent(MeshRenderer.self)
-    renderer.mesh = mesh
-} catch {
+// LoadableMesh - assign now, loads in the background
+let mesh = LoadableMesh(path: "models/character.obj")
+
+let renderer = gameObject.addComponent(MeshRenderer.self)
+renderer.mesh = mesh
+mesh.load()
+
+// Or get the raw mesh data (non-throwing)
+let result = await AssetLoadingActor.shared.loadMesh(from: "models/character.obj")
+if case .failure(let error) = result {
     print("Failed to load mesh: \(error)")
 }
 ```
 
-### With Progress Tracking
+### Completion Callbacks
+
+There is no per-file progress reporting; use the callbacks or `loadState` to react when a load finishes:
 
 ```swift
-let mesh = try await AssetLoadingActor.shared.loadMesh(from: "models/large-world.obj") { progress in
-    // progress is 0.0 to 1.0
-    print("Loading: \(Int(progress * 100))%")
-    updateLoadingBar(progress)
-}
+mesh.onLoaded = { print("Loaded \(mesh.triangleCount) triangles") }
+mesh.onFailed = { message in print("Failed: \(message)") }
 ```
 
 ### Loading Multiple Assets
 
 ```swift
-// Load concurrently using async let
-async let mesh1 = AssetLoadingActor.shared.loadMesh(from: "models/player.obj")
-async let mesh2 = AssetLoadingActor.shared.loadMesh(from: "models/enemy.obj")
-async let mesh3 = AssetLoadingActor.shared.loadMesh(from: "models/props.obj")
+// Load several files and get renderable meshes back
+let meshes = await LoadableMesh.preloadAll([
+    "models/player.obj",
+    "models/enemy.obj",
+    "models/props.obj"
+])
+let playerMesh = meshes["models/player.obj"]  // check isLoaded before relying on it
 
-// Wait for all to complete
-let (playerMesh, enemyMesh, propsMesh) = try await (mesh1, mesh2, mesh3)
+// Or get raw mesh data for each path
+let results = await AssetLoadingActor.shared.loadMeshes(from: [
+    "models/player.obj", "models/enemy.obj", "models/props.obj"
+])  // [String: AssetLoadResult<MeshData>]
 ```
 
 ---
@@ -94,34 +114,35 @@ let (playerMesh, enemyMesh, propsMesh) = try await (mesh1, mesh2, mesh3)
 ```swift
 @MainActor
 public final class GameScene: GameObjectScene {
-    public override func setup() async {
+    public override func onLoad(engine: Engine) {
+        super.onLoad(engine: engine)
+        
         // Show loading indicator
         showLoadingScreen()
         
-        // Load all required assets
-        let characterMesh = try? await AssetLoadingActor.shared.loadMesh(
-            from: "models/character.obj"
-        )
-        
-        let environmentMesh = try? await AssetLoadingActor.shared.loadMesh(
-            from: "models/environment.obj"
-        )
-        
-        // Create game objects with loaded meshes
-        if let mesh = characterMesh {
-            let player = createGameObject(name: "Player")
-            let renderer = player.addComponent(MeshRenderer.self)
-            renderer.mesh = mesh
+        Task {
+            // Load all required assets
+            let meshes = await LoadableMesh.preloadAll([
+                "models/character.obj",
+                "models/environment.obj"
+            ])
+            
+            // Create game objects with loaded meshes
+            if let mesh = meshes["models/character.obj"], mesh.isLoaded {
+                let player = createGameObject(name: "Player")
+                let renderer = player.addComponent(MeshRenderer.self)
+                renderer.mesh = mesh
+            }
+            
+            if let mesh = meshes["models/environment.obj"], mesh.isLoaded {
+                let environment = createGameObject(name: "Environment")
+                let renderer = environment.addComponent(MeshRenderer.self)
+                renderer.mesh = mesh
+            }
+            
+            // Hide loading indicator
+            hideLoadingScreen()
         }
-        
-        if let mesh = environmentMesh {
-            let environment = createGameObject(name: "Environment")
-            let renderer = environment.addComponent(MeshRenderer.self)
-            renderer.mesh = mesh
-        }
-        
-        // Hide loading indicator
-        hideLoadingScreen()
     }
 }
 ```
@@ -135,36 +156,41 @@ public final class LoadingScene: GameObjectScene {
     private var totalAssets: Int = 0
     private var loadedAssets: Int = 0
     
-    public override func setup() async {
+    public override func onLoad(engine: Engine) {
+        super.onLoad(engine: engine)
+        
         // Setup loading UI
         setupLoadingUI()
         
-        // Define assets to load
-        let assetPaths = [
-            "models/player.obj",
-            "models/enemy.obj",
-            "models/world.obj",
-            "models/props.obj"
-        ]
-        totalAssets = assetPaths.count
-        
-        // Load each asset
-        var loadedMeshes: [String: Mesh] = [:]
-        
-        for path in assetPaths {
-            do {
-                let mesh = try await AssetLoadingActor.shared.loadMesh(from: path)
-                loadedMeshes[path] = mesh
+        Task {
+            // Define assets to load
+            let assetPaths = [
+                "models/player.obj",
+                "models/enemy.obj",
+                "models/world.obj",
+                "models/props.obj"
+            ]
+            totalAssets = assetPaths.count
+            
+            // Load each asset (progress is counted per asset)
+            var loadedMeshes: [String: LoadableMesh] = [:]
+            
+            for path in assetPaths {
+                let mesh = LoadableMesh(path: path)
+                await mesh.loadAsync()
+                if case .failed(let message) = mesh.loadState {
+                    print("Failed to load \(path): \(message)")
+                } else {
+                    loadedMeshes[path] = mesh
+                }
                 loadedAssets += 1
                 updateProgress()
-            } catch {
-                print("Failed to load \(path): \(error)")
             }
+            
+            // Transition to game scene with loaded assets
+            let gameScene = GameScene(preloadedMeshes: loadedMeshes)
+            self.engine?.loadScene(gameScene)
         }
-        
-        // Transition to game scene with loaded assets
-        let gameScene = GameScene(preloadedMeshes: loadedMeshes)
-        engine?.loadScene(gameScene)
     }
     
     private func updateProgress() {
@@ -183,7 +209,9 @@ public final class LoadingScene: GameObjectScene {
 | Format | Extension | Status |
 |--------|-----------|--------|
 | OBJ | `.obj` | ✅ Supported |
-| Custom | `.mesh` | ✅ Supported |
+| STL (binary) | `.stl` | ✅ Supported |
+
+Any other extension fails with `AssetLoadError.invalidFormat`.
 
 ### OBJ File Support
 
@@ -192,7 +220,7 @@ public final class LoadingScene: GameObjectScene {
 // - Vertices (v)
 // - Texture coordinates (vt)
 // - Normals (vn)
-// - Faces (f) with vertex/uv/normal indices
+// - Faces (f) with vertex/uv/normal indices (polygons are fan-triangulated)
 
 // Example OBJ content:
 // v 0.0 0.0 0.0
@@ -208,36 +236,50 @@ public final class LoadingScene: GameObjectScene {
 
 ### Basic Texture Loading
 
+There is no asynchronous texture loader. `BMPLoader` loads a BMP synchronously and returns `nil` on failure:
+
 ```swift
 // Load texture
-let texture = try await AssetLoadingActor.shared.loadTexture(from: "textures/diffuse.bmp")
-
-// Apply to material
-material.mainTexture = texture
+if let texture = BMPLoader.load(from: "textures/diffuse.bmp") {
+    // Stored on the material, but the 3D renderer doesn't sample textures yet
+    material.mainTexture = texture
+}
 ```
 
 ### Supported Texture Formats
 
 | Format | Extension | Notes |
 |--------|-----------|-------|
-| BMP | `.bmp` | Uncompressed bitmap |
+| BMP | `.bmp` | Uncompressed 24-bit or 32-bit bitmap |
 
 ---
 
 ## Error Handling
 
+Asset loading never throws. `AssetLoadingActor.loadMesh(from:)` returns an `AssetLoadResult`:
+
 ```swift
-do {
-    let mesh = try await AssetLoadingActor.shared.loadMesh(from: "models/character.obj")
-    renderer.mesh = mesh
-} catch AssetLoadError.fileNotFound(let path) {
+let result = await AssetLoadingActor.shared.loadMesh(from: "models/character.obj")
+switch result {
+case .success(let data):
+    print("Loaded \(data.triangleCount) triangles")
+case .failure(.fileNotFound(let path)):
     print("File not found: \(path)")
-    renderer.mesh = CubeMesh.shared  // Fallback
-} catch AssetLoadError.parseError(let message) {
-    print("Parse error: \(message)")
-    renderer.mesh = CubeMesh.shared  // Fallback
-} catch {
-    print("Unknown error: \(error)")
+case .failure(.invalidFormat(let message)), .failure(.decodingFailed(let message)):
+    print("Could not load: \(message)")
+case .failure(.cancelled):
+    print("Loading cancelled")
+}
+```
+
+`LoadableMesh` reports the same failures as a message in `loadState` / `onFailed`:
+
+```swift
+let mesh = LoadableMesh(path: "models/character.obj")
+await mesh.loadAsync()
+if mesh.isLoaded {
+    renderer.mesh = mesh
+} else {
     renderer.mesh = CubeMesh.shared  // Fallback
 }
 ```
@@ -245,11 +287,11 @@ do {
 ### Error Types
 
 ```swift
-public enum AssetLoadError: Error {
-    case fileNotFound(String)
-    case parseError(String)
-    case invalidFormat(String)
-    case ioError(Error)
+public enum AssetLoadError: Error, Sendable {
+    case fileNotFound(String)    // Missing or unreadable file
+    case invalidFormat(String)   // Unsupported file extension
+    case decodingFailed(String)  // File contents couldn't be parsed
+    case cancelled
 }
 ```
 
@@ -262,10 +304,8 @@ For simple shapes, use built-in primitives instead of loading:
 ```swift
 // No loading needed - instant
 renderer.mesh = CubeMesh.shared
-renderer.mesh = SphereMesh.shared
 renderer.mesh = PlaneMesh(width: 10, depth: 10)
-renderer.mesh = CylinderMesh(radius: 0.5, height: 2)
-renderer.mesh = ConeMesh(radius: 0.5, height: 1)
+renderer.mesh = QuadMesh(width: 2, height: 3)
 ```
 
 See [Built-in Meshes](meshes.md) for more details.
@@ -274,22 +314,23 @@ See [Built-in Meshes](meshes.md) for more details.
 
 ## Best Practices
 
-1. **Load during scene setup** - Use `async setup()` for loading
-2. **Show progress** - Give feedback during long loads
+1. **Start loading in `onLoad`** - Call `LoadableMesh.load()`, or `await` loads inside a `Task`
+2. **Show feedback** - Count completed assets (there is no per-file progress)
 3. **Handle errors gracefully** - Provide fallback meshes
-4. **Load concurrently** - Use `async let` for parallel loading
-5. **Preload common assets** - Load shared assets once, reuse
+4. **Batch loads** - Use `loadMeshes(from:)` or `LoadableMesh.preloadAll`
+5. **Preload common assets** - Load shared assets once, reuse (the actor also caches by path)
 6. **Use built-in meshes** for simple shapes - Avoid unnecessary file I/O
 
 ```swift
 // Good - preload and share
+@MainActor
 class AssetCache {
-    static var characterMesh: Mesh?
+    static var characterMesh: LoadableMesh?
     
     static func preload() async {
-        characterMesh = try? await AssetLoadingActor.shared.loadMesh(
-            from: "models/character.obj"
-        )
+        let mesh = LoadableMesh(path: "models/character.obj")
+        await mesh.loadAsync()
+        characterMesh = mesh.isLoaded ? mesh : nil
     }
 }
 
