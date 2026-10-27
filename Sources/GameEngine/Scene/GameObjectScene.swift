@@ -27,8 +27,8 @@ open class GameObjectScene: Scene {
     /// Fixed update accumulator for physics
     private var fixedUpdateAccumulator: Float = 0
     
-    /// Fixed timestep for physics updates (default: 50 Hz)
-    public var fixedDeltaTime: Float = 1.0 / 50.0
+    /// Fixed timestep for fixedUpdate() (defaults to the physics timestep, 60 Hz)
+    public var fixedDeltaTime: Float = PhysicsSettings().fixedDeltaTime
     
     /// Reference to the engine
     public private(set) weak var engine: Engine?
